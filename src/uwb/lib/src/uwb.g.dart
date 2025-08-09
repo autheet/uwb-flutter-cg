@@ -25,69 +25,11 @@ List<Object?> wrapResponse({Object? result, PlatformException? error, bool empty
   return <Object?>[error.code, error.message, error.details];
 }
 
-enum DeviceType {
-  smartphone,
-  accessory,
-}
-
-enum ErrorCode {
-  uwbError,
-  uwbTooManySessions,
-}
-
-enum PermissionAction {
-  request,
-  restart,
-}
-
-enum DeviceState {
-  connected,
-  disconnected,
-  found,
-  lost,
-  rejected,
-  pending,
-  ranging,
-}
-
-class Direction3D {
-  Direction3D({
-    required this.x,
-    required this.y,
-    required this.z,
-  });
-
-  double x;
-
-  double y;
-
-  double z;
-
-  Object encode() {
-    return <Object?>[
-      x,
-      y,
-      z,
-    ];
-  }
-
-  static Direction3D decode(Object result) {
-    result as List<Object?>;
-    return Direction3D(
-      x: result[0]! as double,
-      y: result[1]! as double,
-      z: result[2]! as double,
-    );
-  }
-}
-
-class UwbData {
-  UwbData({
+class UwbRangingData {
+  UwbRangingData({
     this.distance,
     this.azimuth,
     this.elevation,
-    this.direction,
-    this.horizontalAngle,
   });
 
   double? distance;
@@ -96,74 +38,56 @@ class UwbData {
 
   double? elevation;
 
-  Direction3D? direction;
-
-  double? horizontalAngle;
-
   Object encode() {
     return <Object?>[
       distance,
       azimuth,
       elevation,
-      direction?.encode(),
-      horizontalAngle,
     ];
   }
 
-  static UwbData decode(Object result) {
+  static UwbRangingData decode(Object result) {
     result as List<Object?>;
-    return UwbData(
+    return UwbRangingData(
       distance: result[0] as double?,
       azimuth: result[1] as double?,
       elevation: result[2] as double?,
-      direction: result[3] != null
-          ? Direction3D.decode(result[3]! as List<Object?>)
-          : null,
-      horizontalAngle: result[4] as double?,
     );
   }
 }
 
+/// Represents a UWB-capable device.
+/// The name is discovered via the out-of-band BLE channel.
+/// The rangingData is nullable because a device might be discovered via BLE
+/// before UWB ranging has started.
 class UwbDevice {
   UwbDevice({
-    required this.id,
+    required this.address,
     required this.name,
-    this.uwbData,
-    required this.deviceType,
-    this.state,
+    this.rangingData,
   });
 
-  String id;
+  Uint8List address;
 
   String name;
 
-  UwbData? uwbData;
-
-  DeviceType deviceType;
-
-  DeviceState? state;
+  UwbRangingData? rangingData;
 
   Object encode() {
     return <Object?>[
-      id,
+      address,
       name,
-      uwbData?.encode(),
-      deviceType.index,
-      state?.index,
+      rangingData?.encode(),
     ];
   }
 
   static UwbDevice decode(Object result) {
     result as List<Object?>;
     return UwbDevice(
-      id: result[0]! as String,
+      address: result[0]! as Uint8List,
       name: result[1]! as String,
-      uwbData: result[2] != null
-          ? UwbData.decode(result[2]! as List<Object?>)
-          : null,
-      deviceType: DeviceType.values[result[3]! as int],
-      state: result[4] != null
-          ? DeviceState.values[result[4]! as int]
+      rangingData: result[2] != null
+          ? UwbRangingData.decode(result[2]! as List<Object?>)
           : null,
     );
   }
@@ -292,7 +216,7 @@ class UwbHostApi {
     }
   }
 
-  Future<void> startRanging(Uint8List peerAddress, UwbSessionConfig config) async {
+  Future<void> startRanging(Uint8List peerAddress, UwbSessionConfig config, bool isAccessory) async {
     const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startRanging';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -300,7 +224,7 @@ class UwbHostApi {
       binaryMessenger: __pigeon_binaryMessenger,
     );
     final List<Object?>? __pigeon_replyList =
-        await __pigeon_channel.send(<Object?>[peerAddress, config]) as List<Object?>?;
+        await __pigeon_channel.send(<Object?>[peerAddress, config, isAccessory]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
@@ -314,7 +238,7 @@ class UwbHostApi {
     }
   }
 
-  Future<void> stopRanging(String peerAddress) async {
+  Future<void> stopRanging(Uint8List peerAddress) async {
     const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.stopRanging';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -363,13 +287,13 @@ class _UwbFlutterApiCodec extends StandardMessageCodec {
   const _UwbFlutterApiCodec();
   @override
   void writeValue(WriteBuffer buffer, Object? value) {
-    if (value is Direction3D) {
+    if (value is UwbDevice) {
       buffer.putUint8(128);
       writeValue(buffer, value.encode());
-    } else if (value is UwbData) {
+    } else if (value is UwbRangingData) {
       buffer.putUint8(129);
       writeValue(buffer, value.encode());
-    } else if (value is UwbDevice) {
+    } else if (value is UwbSessionConfig) {
       buffer.putUint8(130);
       writeValue(buffer, value.encode());
     } else {
@@ -381,11 +305,11 @@ class _UwbFlutterApiCodec extends StandardMessageCodec {
   Object? readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
       case 128: 
-        return Direction3D.decode(readValue(buffer)!);
-      case 129: 
-        return UwbData.decode(readValue(buffer)!);
-      case 130: 
         return UwbDevice.decode(readValue(buffer)!);
+      case 129: 
+        return UwbRangingData.decode(readValue(buffer)!);
+      case 130: 
+        return UwbSessionConfig.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -395,31 +319,29 @@ class _UwbFlutterApiCodec extends StandardMessageCodec {
 abstract class UwbFlutterApi {
   static const MessageCodec<Object?> pigeonChannelCodec = _UwbFlutterApiCodec();
 
-  void onRanging(UwbDevice device);
+  void onRangingResult(UwbDevice device);
 
-  void onUwbSessionStarted(UwbDevice device);
+  void onRangingError(Object error);
 
-  void onUwbSessionDisconnected(UwbDevice device);
-
-  void onPermissionRequired(PermissionAction action);
+  void onPeerDisconnected(UwbDevice device);
 
   static void setup(UwbFlutterApi? api, {BinaryMessenger? binaryMessenger}) {
     {
       final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
-          'dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging', pigeonChannelCodec,
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingResult', pigeonChannelCodec,
           binaryMessenger: binaryMessenger);
       if (api == null) {
         __pigeon_channel.setMessageHandler(null);
       } else {
         __pigeon_channel.setMessageHandler((Object? message) async {
           assert(message != null,
-          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging was null.');
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingResult was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final UwbDevice? arg_device = (args[0] as UwbDevice?);
           assert(arg_device != null,
-              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging was null, expected non-null UwbDevice.');
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingResult was null, expected non-null UwbDevice.');
           try {
-            api.onRanging(arg_device!);
+            api.onRangingResult(arg_device!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -431,20 +353,20 @@ abstract class UwbFlutterApi {
     }
     {
       final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
-          'dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionStarted', pigeonChannelCodec,
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError', pigeonChannelCodec,
           binaryMessenger: binaryMessenger);
       if (api == null) {
         __pigeon_channel.setMessageHandler(null);
       } else {
         __pigeon_channel.setMessageHandler((Object? message) async {
           assert(message != null,
-          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionStarted was null.');
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError was null.');
           final List<Object?> args = (message as List<Object?>?)!;
-          final UwbDevice? arg_device = (args[0] as UwbDevice?);
-          assert(arg_device != null,
-              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionStarted was null, expected non-null UwbDevice.');
+          final Object? arg_error = (args[0] as Object?);
+          assert(arg_error != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError was null, expected non-null Object.');
           try {
-            api.onUwbSessionStarted(arg_device!);
+            api.onRangingError(arg_error!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -456,45 +378,20 @@ abstract class UwbFlutterApi {
     }
     {
       final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
-          'dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionDisconnected', pigeonChannelCodec,
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDisconnected', pigeonChannelCodec,
           binaryMessenger: binaryMessenger);
       if (api == null) {
         __pigeon_channel.setMessageHandler(null);
       } else {
         __pigeon_channel.setMessageHandler((Object? message) async {
           assert(message != null,
-          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionDisconnected was null.');
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDisconnected was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final UwbDevice? arg_device = (args[0] as UwbDevice?);
           assert(arg_device != null,
-              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionDisconnected was null, expected non-null UwbDevice.');
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDisconnected was null, expected non-null UwbDevice.');
           try {
-            api.onUwbSessionDisconnected(arg_device!);
-            return wrapResponse(empty: true);
-          } on PlatformException catch (e) {
-            return wrapResponse(error: e);
-          }          catch (e) {
-            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
-          }
-        });
-      }
-    }
-    {
-      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
-          'dev.flutter.pigeon.uwb.UwbFlutterApi.onPermissionRequired', pigeonChannelCodec,
-          binaryMessenger: binaryMessenger);
-      if (api == null) {
-        __pigeon_channel.setMessageHandler(null);
-      } else {
-        __pigeon_channel.setMessageHandler((Object? message) async {
-          assert(message != null,
-          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPermissionRequired was null.');
-          final List<Object?> args = (message as List<Object?>?)!;
-          final PermissionAction? arg_action = args[0] == null ? null : PermissionAction.values[args[0]! as int];
-          assert(arg_action != null,
-              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPermissionRequired was null, expected non-null PermissionAction.');
-          try {
-            api.onPermissionRequired(arg_action!);
+            api.onPeerDisconnected(arg_device!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

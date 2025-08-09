@@ -46,100 +46,20 @@ class FlutterError (
   val details: Any? = null
 ) : Throwable()
 
-enum class DeviceType(val raw: Int) {
-  SMARTPHONE(0),
-  ACCESSORY(1);
-
-  companion object {
-    fun ofRaw(raw: Int): DeviceType? {
-      return values().firstOrNull { it.raw == raw }
-    }
-  }
-}
-
-enum class ErrorCode(val raw: Int) {
-  UWB_ERROR(0),
-  UWB_TOO_MANY_SESSIONS(1);
-
-  companion object {
-    fun ofRaw(raw: Int): ErrorCode? {
-      return values().firstOrNull { it.raw == raw }
-    }
-  }
-}
-
-enum class PermissionAction(val raw: Int) {
-  REQUEST(0),
-  RESTART(1);
-
-  companion object {
-    fun ofRaw(raw: Int): PermissionAction? {
-      return values().firstOrNull { it.raw == raw }
-    }
-  }
-}
-
-enum class DeviceState(val raw: Int) {
-  CONNECTED(0),
-  DISCONNECTED(1),
-  FOUND(2),
-  LOST(3),
-  REJECTED(4),
-  PENDING(5),
-  RANGING(6);
-
-  companion object {
-    fun ofRaw(raw: Int): DeviceState? {
-      return values().firstOrNull { it.raw == raw }
-    }
-  }
-}
-
 /** Generated class from Pigeon that represents data sent in messages. */
-data class Direction3D (
-  val x: Double,
-  val y: Double,
-  val z: Double
-
-) {
-  companion object {
-    @Suppress("UNCHECKED_CAST")
-    fun fromList(list: List<Any?>): Direction3D {
-      val x = list[0] as Double
-      val y = list[1] as Double
-      val z = list[2] as Double
-      return Direction3D(x, y, z)
-    }
-  }
-  fun toList(): List<Any?> {
-    return listOf<Any?>(
-      x,
-      y,
-      z,
-    )
-  }
-}
-
-/** Generated class from Pigeon that represents data sent in messages. */
-data class UwbData (
+data class UwbRangingData (
   val distance: Double? = null,
   val azimuth: Double? = null,
-  val elevation: Double? = null,
-  val direction: Direction3D? = null,
-  val horizontalAngle: Double? = null
+  val elevation: Double? = null
 
 ) {
   companion object {
     @Suppress("UNCHECKED_CAST")
-    fun fromList(list: List<Any?>): UwbData {
+    fun fromList(list: List<Any?>): UwbRangingData {
       val distance = list[0] as Double?
       val azimuth = list[1] as Double?
       val elevation = list[2] as Double?
-      val direction: Direction3D? = (list[3] as List<Any?>?)?.let {
-        Direction3D.fromList(it)
-      }
-      val horizontalAngle = list[4] as Double?
-      return UwbData(distance, azimuth, elevation, direction, horizontalAngle)
+      return UwbRangingData(distance, azimuth, elevation)
     }
   }
   fun toList(): List<Any?> {
@@ -147,43 +67,40 @@ data class UwbData (
       distance,
       azimuth,
       elevation,
-      direction?.toList(),
-      horizontalAngle,
     )
   }
 }
 
-/** Generated class from Pigeon that represents data sent in messages. */
+/**
+ * Represents a UWB-capable device.
+ * The name is discovered via the out-of-band BLE channel.
+ * The rangingData is nullable because a device might be discovered via BLE
+ * before UWB ranging has started.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
 data class UwbDevice (
-  val id: String,
+  val address: ByteArray,
   val name: String,
-  val uwbData: UwbData? = null,
-  val deviceType: DeviceType,
-  val state: DeviceState? = null
+  val rangingData: UwbRangingData? = null
 
 ) {
   companion object {
     @Suppress("UNCHECKED_CAST")
     fun fromList(list: List<Any?>): UwbDevice {
-      val id = list[0] as String
+      val address = list[0] as ByteArray
       val name = list[1] as String
-      val uwbData: UwbData? = (list[2] as List<Any?>?)?.let {
-        UwbData.fromList(it)
+      val rangingData: UwbRangingData? = (list[2] as List<Any?>?)?.let {
+        UwbRangingData.fromList(it)
       }
-      val deviceType = DeviceType.ofRaw(list[3] as Int)!!
-      val state: DeviceState? = (list[4] as Int?)?.let {
-        DeviceState.ofRaw(it)
-      }
-      return UwbDevice(id, name, uwbData, deviceType, state)
+      return UwbDevice(address, name, rangingData)
     }
   }
   fun toList(): List<Any?> {
     return listOf<Any?>(
-      id,
+      address,
       name,
-      uwbData?.toList(),
-      deviceType.raw,
-      state?.raw,
+      rangingData?.toList(),
     )
   }
 }
@@ -243,8 +160,8 @@ private object UwbHostApiCodec : StandardMessageCodec() {
 interface UwbHostApi {
   fun getLocalUwbAddress(callback: (Result<ByteArray>) -> Unit)
   fun isUwbSupported(): Boolean
-  fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig)
-  fun stopRanging(peerAddress: String)
+  fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig, isAccessory: Boolean)
+  fun stopRanging(peerAddress: ByteArray)
   fun stopUwbSessions()
 
   companion object {
@@ -296,9 +213,10 @@ interface UwbHostApi {
             val args = message as List<Any?>
             val peerAddressArg = args[0] as ByteArray
             val configArg = args[1] as UwbSessionConfig
+            val isAccessoryArg = args[2] as Boolean
             var wrapped: List<Any?>
             try {
-              api.startRanging(peerAddressArg, configArg)
+              api.startRanging(peerAddressArg, configArg, isAccessoryArg)
               wrapped = listOf<Any?>(null)
             } catch (exception: Throwable) {
               wrapped = wrapError(exception)
@@ -314,7 +232,7 @@ interface UwbHostApi {
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val peerAddressArg = args[0] as String
+            val peerAddressArg = args[0] as ByteArray
             var wrapped: List<Any?>
             try {
               api.stopRanging(peerAddressArg)
@@ -354,17 +272,17 @@ private object UwbFlutterApiCodec : StandardMessageCodec() {
     return when (type) {
       128.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Direction3D.fromList(it)
+          UwbDevice.fromList(it)
         }
       }
       129.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          UwbData.fromList(it)
+          UwbRangingData.fromList(it)
         }
       }
       130.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          UwbDevice.fromList(it)
+          UwbSessionConfig.fromList(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -372,15 +290,15 @@ private object UwbFlutterApiCodec : StandardMessageCodec() {
   }
   override fun writeValue(stream: ByteArrayOutputStream, value: Any?)   {
     when (value) {
-      is Direction3D -> {
+      is UwbDevice -> {
         stream.write(128)
         writeValue(stream, value.toList())
       }
-      is UwbData -> {
+      is UwbRangingData -> {
         stream.write(129)
         writeValue(stream, value.toList())
       }
-      is UwbDevice -> {
+      is UwbSessionConfig -> {
         stream.write(130)
         writeValue(stream, value.toList())
       }
@@ -398,9 +316,9 @@ class UwbFlutterApi(private val binaryMessenger: BinaryMessenger) {
       UwbFlutterApiCodec
     }
   }
-  fun onRanging(deviceArg: UwbDevice, callback: (Result<Unit>) -> Unit)
+  fun onRangingResult(deviceArg: UwbDevice, callback: (Result<Unit>) -> Unit)
 {
-    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging"
+    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingResult"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(deviceArg)) {
       if (it is List<*>) {
@@ -414,11 +332,11 @@ class UwbFlutterApi(private val binaryMessenger: BinaryMessenger) {
       } 
     }
   }
-  fun onUwbSessionStarted(deviceArg: UwbDevice, callback: (Result<Unit>) -> Unit)
+  fun onRangingError(errorArg: Any, callback: (Result<Unit>) -> Unit)
 {
-    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionStarted"
+    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(deviceArg)) {
+    channel.send(listOf(errorArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -430,27 +348,11 @@ class UwbFlutterApi(private val binaryMessenger: BinaryMessenger) {
       } 
     }
   }
-  fun onUwbSessionDisconnected(deviceArg: UwbDevice, callback: (Result<Unit>) -> Unit)
+  fun onPeerDisconnected(deviceArg: UwbDevice, callback: (Result<Unit>) -> Unit)
 {
-    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionDisconnected"
+    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDisconnected"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(deviceArg)) {
-      if (it is List<*>) {
-        if (it.size > 1) {
-          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
-        } else {
-          callback(Result.success(Unit))
-        }
-      } else {
-        callback(Result.failure(createConnectionError(channelName)))
-      } 
-    }
-  }
-  fun onPermissionRequired(actionArg: PermissionAction, callback: (Result<Unit>) -> Unit)
-{
-    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPermissionRequired"
-    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(actionArg.raw)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))

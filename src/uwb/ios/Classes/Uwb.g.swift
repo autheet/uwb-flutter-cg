@@ -43,81 +43,21 @@ private func nilOrValue<T>(_ value: Any?) -> T? {
   return value as! T?
 }
 
-enum DeviceType: Int {
-  case smartphone = 0
-  case accessory = 1
-}
-
-enum ErrorCode: Int {
-  case uwbError = 0
-  case uwbTooManySessions = 1
-}
-
-enum PermissionAction: Int {
-  case request = 0
-  case restart = 1
-}
-
-enum DeviceState: Int {
-  case connected = 0
-  case disconnected = 1
-  case found = 2
-  case lost = 3
-  case rejected = 4
-  case pending = 5
-  case ranging = 6
-}
-
 /// Generated class from Pigeon that represents data sent in messages.
-struct Direction3D {
-  var x: Double
-  var y: Double
-  var z: Double
-
-  static func fromList(_ list: [Any?]) -> Direction3D? {
-    let x = list[0] as! Double
-    let y = list[1] as! Double
-    let z = list[2] as! Double
-
-    return Direction3D(
-      x: x,
-      y: y,
-      z: z
-    )
-  }
-  func toList() -> [Any?] {
-    return [
-      x,
-      y,
-      z,
-    ]
-  }
-}
-
-/// Generated class from Pigeon that represents data sent in messages.
-struct UwbData {
+struct UwbRangingData {
   var distance: Double? = nil
   var azimuth: Double? = nil
   var elevation: Double? = nil
-  var direction: Direction3D? = nil
-  var horizontalAngle: Double? = nil
 
-  static func fromList(_ list: [Any?]) -> UwbData? {
+  static func fromList(_ list: [Any?]) -> UwbRangingData? {
     let distance: Double? = nilOrValue(list[0])
     let azimuth: Double? = nilOrValue(list[1])
     let elevation: Double? = nilOrValue(list[2])
-    var direction: Direction3D? = nil
-    if let directionList: [Any?] = nilOrValue(list[3]) {
-      direction = Direction3D.fromList(directionList)
-    }
-    let horizontalAngle: Double? = nilOrValue(list[4])
 
-    return UwbData(
+    return UwbRangingData(
       distance: distance,
       azimuth: azimuth,
-      elevation: elevation,
-      direction: direction,
-      horizontalAngle: horizontalAngle
+      elevation: elevation
     )
   }
   func toList() -> [Any?] {
@@ -125,49 +65,40 @@ struct UwbData {
       distance,
       azimuth,
       elevation,
-      direction?.toList(),
-      horizontalAngle,
     ]
   }
 }
 
+/// Represents a UWB-capable device.
+/// The name is discovered via the out-of-band BLE channel.
+/// The rangingData is nullable because a device might be discovered via BLE
+/// before UWB ranging has started.
+///
 /// Generated class from Pigeon that represents data sent in messages.
 struct UwbDevice {
-  var id: String
+  var address: FlutterStandardTypedData
   var name: String
-  var uwbData: UwbData? = nil
-  var deviceType: DeviceType
-  var state: DeviceState? = nil
+  var rangingData: UwbRangingData? = nil
 
   static func fromList(_ list: [Any?]) -> UwbDevice? {
-    let id = list[0] as! String
+    let address = list[0] as! FlutterStandardTypedData
     let name = list[1] as! String
-    var uwbData: UwbData? = nil
-    if let uwbDataList: [Any?] = nilOrValue(list[2]) {
-      uwbData = UwbData.fromList(uwbDataList)
-    }
-    let deviceType = DeviceType(rawValue: list[3] as! Int)!
-    var state: DeviceState? = nil
-    let stateEnumVal: Int? = nilOrValue(list[4])
-    if let stateRawValue = stateEnumVal {
-      state = DeviceState(rawValue: stateRawValue)!
+    var rangingData: UwbRangingData? = nil
+    if let rangingDataList: [Any?] = nilOrValue(list[2]) {
+      rangingData = UwbRangingData.fromList(rangingDataList)
     }
 
     return UwbDevice(
-      id: id,
+      address: address,
       name: name,
-      uwbData: uwbData,
-      deviceType: deviceType,
-      state: state
+      rangingData: rangingData
     )
   }
   func toList() -> [Any?] {
     return [
-      id,
+      address,
       name,
-      uwbData?.toList(),
-      deviceType.rawValue,
-      state?.rawValue,
+      rangingData?.toList(),
     ]
   }
 }
@@ -242,8 +173,8 @@ class UwbHostApiCodec: FlutterStandardMessageCodec {
 protocol UwbHostApi {
   func getLocalUwbAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
   func isUwbSupported() throws -> Bool
-  func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig) throws
-  func stopRanging(peerAddress: String) throws
+  func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig, isAccessory: Bool) throws
+  func stopRanging(peerAddress: FlutterStandardTypedData) throws
   func stopUwbSessions() throws
 }
 
@@ -287,8 +218,9 @@ class UwbHostApiSetup {
         let args = message as! [Any?]
         let peerAddressArg = args[0] as! FlutterStandardTypedData
         let configArg = args[1] as! UwbSessionConfig
+        let isAccessoryArg = args[2] as! Bool
         do {
-          try api.startRanging(peerAddress: peerAddressArg, config: configArg)
+          try api.startRanging(peerAddress: peerAddressArg, config: configArg, isAccessory: isAccessoryArg)
           reply(wrapResult(nil))
         } catch {
           reply(wrapError(error))
@@ -301,7 +233,7 @@ class UwbHostApiSetup {
     if let api = api {
       stopRangingChannel.setMessageHandler { message, reply in
         let args = message as! [Any?]
-        let peerAddressArg = args[0] as! String
+        let peerAddressArg = args[0] as! FlutterStandardTypedData
         do {
           try api.stopRanging(peerAddress: peerAddressArg)
           reply(wrapResult(nil))
@@ -331,11 +263,11 @@ private class UwbFlutterApiCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
     case 128:
-      return Direction3D.fromList(self.readValue() as! [Any?])
-    case 129:
-      return UwbData.fromList(self.readValue() as! [Any?])
-    case 130:
       return UwbDevice.fromList(self.readValue() as! [Any?])
+    case 129:
+      return UwbRangingData.fromList(self.readValue() as! [Any?])
+    case 130:
+      return UwbSessionConfig.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -344,13 +276,13 @@ private class UwbFlutterApiCodecReader: FlutterStandardReader {
 
 private class UwbFlutterApiCodecWriter: FlutterStandardWriter {
   override func writeValue(_ value: Any) {
-    if let value = value as? Direction3D {
+    if let value = value as? UwbDevice {
       super.writeByte(128)
       super.writeValue(value.toList())
-    } else if let value = value as? UwbData {
+    } else if let value = value as? UwbRangingData {
       super.writeByte(129)
       super.writeValue(value.toList())
-    } else if let value = value as? UwbDevice {
+    } else if let value = value as? UwbSessionConfig {
       super.writeByte(130)
       super.writeValue(value.toList())
     } else {
@@ -375,10 +307,9 @@ class UwbFlutterApiCodec: FlutterStandardMessageCodec {
 
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol UwbFlutterApiProtocol {
-  func onRanging(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
-  func onUwbSessionStarted(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
-  func onUwbSessionDisconnected(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
-  func onPermissionRequired(action actionArg: PermissionAction, completion: @escaping (Result<Void, FlutterError>) -> Void)
+  func onRangingResult(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
+  func onRangingError(error errorArg: Any, completion: @escaping (Result<Void, FlutterError>) -> Void)
+  func onPeerDisconnected(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
 }
 class UwbFlutterApi: UwbFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -388,8 +319,8 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
   var codec: FlutterStandardMessageCodec {
     return UwbFlutterApiCodec.shared
   }
-  func onRanging(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void) {
-    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging"
+  func onRangingResult(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingResult"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([deviceArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
@@ -406,10 +337,10 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
       }
     }
   }
-  func onUwbSessionStarted(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void) {
-    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionStarted"
+  func onRangingError(error errorArg: Any, completion: @escaping (Result<Void, FlutterError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([deviceArg] as [Any?]) { response in
+    channel.sendMessage([errorArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
@@ -424,28 +355,10 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
       }
     }
   }
-  func onUwbSessionDisconnected(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void) {
-    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onUwbSessionDisconnected"
+  func onPeerDisconnected(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDisconnected"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([deviceArg] as [Any?]) { response in
-      guard let listResponse = response as? [Any?] else {
-        completion(.failure(createConnectionError(withChannelName: channelName)))
-        return
-      }
-      if listResponse.count > 1 {
-        let code: String = listResponse[0] as! String
-        let message: String? = nilOrValue(listResponse[1])
-        let details: String? = nilOrValue(listResponse[2])
-        completion(.failure(FlutterError(code: code, message: message, details: details)))
-      } else {
-        completion(.success(Void()))
-      }
-    }
-  }
-  func onPermissionRequired(action actionArg: PermissionAction, completion: @escaping (Result<Void, FlutterError>) -> Void) {
-    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPermissionRequired"
-    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([actionArg.rawValue] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
