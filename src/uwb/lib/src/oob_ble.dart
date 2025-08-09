@@ -17,10 +17,12 @@ class OobBle {
   final UwbSessionConfig _config;
   final String? _deviceName;
 
-  StreamSubscription<BluetoothLowEnergyStateChangedEventArgs>? _centralStateSubscription;
+  StreamSubscription<BluetoothLowEnergyStateChangedEventArgs>?
+      _centralStateSubscription;
   StreamSubscription<DiscoveredEventArgs>? _discoverySubscription;
-  StreamSubscription<GATTCharacteristicNotifiedEventArgs>? _notificationSubscription;
-  
+  StreamSubscription<GATTCharacteristicNotifiedEventArgs>?
+      _notificationSubscription;
+
   bool _isActive = false;
 
   OobBle(
@@ -93,7 +95,8 @@ class OobBle {
     });
 
     _notificationSubscription?.cancel();
-    _notificationSubscription = _centralManager.characteristicNotified.listen((event) {
+    _notificationSubscription =
+        _centralManager.characteristicNotified.listen((event) {
       _onNotificationReceived(event.value);
     });
 
@@ -110,20 +113,65 @@ class OobBle {
   void _handlePeripheral(Peripheral peripheral) async {
     try {
       await _centralManager.connect(peripheral);
+      await Future.delayed(const Duration(milliseconds: 500));
       final services = await _centralManager.discoverGATT(peripheral);
-      final gattService = services.firstWhere((s) => s.uuid == _serviceUuid);
 
-      final rxCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _rxCharacteristicUuid);
-      final txCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _txCharacteristicUuid);
+      GATTService? gattService;
+      for (final s in services) {
+        if (s.uuid == _serviceUuid) {
+          gattService = s;
+          break;
+        }
+      }
 
-      await _centralManager.setCharacteristicNotifyState(peripheral, txCharacteristic, state: true);
-      
+      if (gattService == null) {
+        debugPrint(
+            "UWB service not found. Disconnecting and restarting discovery.");
+        await _centralManager.disconnect(peripheral);
+        await _startDiscovery();
+        return;
+      }
+
+      GATTCharacteristic? rxCharacteristic;
+      for (final c in gattService.characteristics) {
+        if (c.uuid == _rxCharacteristicUuid) {
+          rxCharacteristic = c;
+        }
+      }
+
+      GATTCharacteristic? txCharacteristic;
+      for (final c in gattService.characteristics) {
+        if (c.uuid == _txCharacteristicUuid) {
+          txCharacteristic = c;
+        }
+      }
+
+      if (rxCharacteristic == null || txCharacteristic == null) {
+        debugPrint(
+            "UWB characteristics not found. Disconnecting and restarting discovery.");
+        await _centralManager.disconnect(peripheral);
+        await _startDiscovery();
+        return;
+      }
+
+      await _centralManager.setCharacteristicNotifyState(peripheral,
+          txCharacteristic, state: true);
+
       final localAddress = await _uwb.getLocalUwbAddress();
-      await _centralManager.writeCharacteristic(peripheral, rxCharacteristic, value: localAddress, type: GATTCharacteristicWriteType.withResponse);
-
+      await _centralManager.writeCharacteristic(
+          peripheral, rxCharacteristic,
+          value: localAddress,
+          type: GATTCharacteristicWriteType.withResponse);
     } catch (e) {
-      debugPrint("Error handling peripheral: $e");
-      await _startDiscovery();
+      debugPrint(
+          "Error handling peripheral: $e. Disconnecting and restarting discovery.");
+      try {
+        await _centralManager.disconnect(peripheral);
+      } catch (disconnectError) {
+        debugPrint("Error during disconnect: $disconnectError");
+      } finally {
+        await _startDiscovery();
+      }
     }
   }
 
