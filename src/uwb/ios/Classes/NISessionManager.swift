@@ -1,4 +1,5 @@
 import Foundation
+import Flutter
 import NearbyInteraction
 import os
 import Flutter
@@ -110,7 +111,7 @@ class NISessionManager: NSObject, NISessionDelegate {
             horizontalAngle: horizontalAngle.map { Double($0) }
         )
 
-        delegate?.sessionManager(didUpdate: uwbData, for: peerId)
+        delegate?.sessionManager(didUpdate: rangingData: uwbData, for: peerId)
     }
     
     internal func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
