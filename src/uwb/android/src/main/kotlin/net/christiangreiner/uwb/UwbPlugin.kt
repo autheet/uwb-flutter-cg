@@ -1,5 +1,6 @@
 package net.christiangreiner.uwb
 
+import android.content.pm.PackageManager
 import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
@@ -19,6 +20,7 @@ private fun Throwable.toFlutterError(): FlutterError {
 class UwbPlugin : FlutterPlugin, UwbHostApi {
     private lateinit var uwbManager: UwbManager
     private lateinit var flutterApi: UwbFlutterApi
+    private lateinit var packageManager: PackageManager
 
     private var controllerSessionScope: UwbControllerSessionScope? = null
     private val rangingJobs = HashMap<String, Disposable>()
@@ -27,6 +29,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         UwbHostApi.setUp(binding.binaryMessenger, this)
         flutterApi = UwbFlutterApi(binding.binaryMessenger)
         uwbManager = UwbManager.createInstance(binding.applicationContext)
+        packageManager = binding.applicationContext.packageManager
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -35,7 +38,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     }
 
     override fun isUwbSupported(): Boolean {
-        return uwbManager.isAvailable
+        return packageManager.hasSystemFeature(PackageManager.FEATURE_UWB)
     }
 
     override fun getLocalUwbAddress(callback: (Result<ByteArray>) -> Unit) {
@@ -62,7 +65,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
                 subSessionId = 0,
                 sessionKeyInfo = config.sessionKeyInfo,
                 subSessionKeyInfo = null,
-                complexChannel = UwbComplexChannel(config.channel, config.preambleIndex.toInt()),
+                complexChannel = UwbComplexChannel(config.channel.toInt(), config.preambleIndex.toInt()),
                 peerDevices = listOf(androidx.core.uwb.UwbDevice(UwbAddress(peerAddress))),
                 updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
             )
