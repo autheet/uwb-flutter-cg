@@ -26,6 +26,10 @@ abstract class UwbPlatform extends PlatformInterface {
   Stream<List<UwbDevice>> get uwbDataStream {
     throw UnimplementedError('uwbDataStream has not been implemented.');
   }
+
+  Stream<PermissionAction> get permissionRequestStream {
+    throw UnimplementedError('permissionRequestStream has not been implemented.');
+  }
   
   Future<void> startRanging(Uint8List peerAddress, UwbSessionConfig config) {
     throw UnimplementedError('startRanging() has not been implemented.');
