@@ -3,6 +3,9 @@ import UIKit
 import NearbyInteraction
 import os
 
+// This extension is required to allow FlutterError to be used in Swift's Result type.
+extension FlutterError: Error {}
+
 class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     private var niManager: NISessionManager?
 
