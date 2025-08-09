@@ -35,6 +35,7 @@ class UwbConnectionManager(context: Context, private var appCoroutineScope: Coro
 
     private val sessionKeyInfo : ByteArray = byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
     private val uwbChannel: Int = 9
+    private val preambleIndex: Int = 10
 
     // TODO: Each Session should have an own contollerSessionScope
     private var controllerSessionScopeSingle: Single<UwbControllerSessionScope>? = null
@@ -97,7 +98,7 @@ class UwbConnectionManager(context: Context, private var appCoroutineScope: Coro
                 subSessionId = 0,
                 sessionKeyInfo = sessionKeyInfo,
                 subSessionKeyInfo = null,
-                complexChannel = UwbComplexChannel(uwbChannel, preambleIndex),
+                complexChannel = UwbComplexChannel(uwbChannel, this@UwbConnectionManager.preambleIndex),
                 peerDevices = listOf(UwbDevice(endpointUwbAddress)),
                 updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
             )
