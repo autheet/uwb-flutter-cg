@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -16,9 +15,10 @@ import 'package:uwb/src/oob_ble.dart';
 class Uwb extends UwbPlatform implements UwbFlutterApi {
   final _uwbSessionStateStream = StreamController<UwbSessionState>.broadcast();
   final _uwbDataStreamController = StreamController<List<UwbDevice>>.broadcast();
-  final _permissionRequestController = StreamController<PermissionAction>.broadcast();
   final _rangingDevices = <String, UwbDevice>{};
   OobBle? _oobBle;
+  CentralManager? _centralManager;
+  PeripheralManager? _peripheralManager;
 
   final UwbHostApi _hostApi = UwbHostApi();
 
@@ -50,7 +50,7 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   
   @override
   void onPermissionRequired(PermissionAction action) {
-    _permissionRequestController.add(action);
+    // TODO: Handle permission required
   }
 
   // --- Public API ---
@@ -63,10 +63,6 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   Stream<List<UwbDevice>> get uwbDataStream =>
       _uwbDataStreamController.stream.asBroadcastStream();
 
-  @override
-  Stream<PermissionAction> get permissionRequestStream =>
-      _permissionRequestController.stream.asBroadcastStream();
-
   Future<void> start({
     String? deviceName,
     required String serviceUuid,
@@ -78,6 +74,9 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
       debugPrint("UWB session already active. Please stop the current session before starting a new one.");
       return;
     }
+    
+    _centralManager = CentralManager();
+    _peripheralManager = PeripheralManager();
 
     if (config == null) {
       debugPrint("Warning: No UwbSessionConfig provided. Using default values.");
@@ -92,6 +91,8 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
 
     _oobBle = OobBle(
       this,
+      _centralManager!,
+      _peripheralManager!,
       UUID.fromString(serviceUuid),
       UUID.fromString(rxCharacteristicUuid),
       UUID.fromString(txCharacteristicUuid),
@@ -102,8 +103,10 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   }
   
   void stop() {
-    _oobBle?.stop();
+    _oobBle?.dispose();
     _oobBle = null;
+    _centralManager = null;
+    _peripheralManager = null;
     stopUwbSessions();
   }
 
@@ -148,7 +151,6 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   void dispose() {
     _uwbSessionStateStream.close();
     _uwbDataStreamController.close();
-    _permissionRequestController.close();
   }
 
   void _parsePlatformException(PlatformException e) {
@@ -156,11 +158,5 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     if(code != null && code < ErrorCode.values.length) {
       throw UwbException(ErrorCode.values[code], e.message);
     }
-  }
-
-  UwbDevice _parseUwbData(String data) {
-    // This method is now obsolete as ranging data comes from the onRanging callback.
-    // It's kept here to avoid breaking the EventChannel logic, but should be considered for removal.
-    return UwbDevice(id: "deprecated", name: "deprecated", deviceType: DeviceType.smartphone, state: DeviceState.ranging);
   }
 }

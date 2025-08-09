@@ -9,14 +9,13 @@ import 'package:uwb/src/defs.dart';
 
 class OobBle {
   final Uwb _uwb;
+  final CentralManager _centralManager;
+  final PeripheralManager _peripheralManager;
   final UUID _serviceUuid;
   final UUID _rxCharacteristicUuid;
   final UUID _txCharacteristicUuid;
   final UwbSessionConfig _config;
   final String? _deviceName;
-
-  final CentralManager _centralManager;
-  final PeripheralManager _peripheralManager;
 
   StreamSubscription<BluetoothLowEnergyStateChangedEventArgs>? _centralStateSubscription;
   StreamSubscription<DiscoveredEventArgs>? _discoverySubscription;
@@ -24,17 +23,23 @@ class OobBle {
   
   bool _isActive = false;
 
-  OobBle(this._uwb, this._serviceUuid, this._rxCharacteristicUuid, this._txCharacteristicUuid, this._config, {String? deviceName})
-      : _centralManager = CentralManager(),
-        _peripheralManager = PeripheralManager(),
-        _deviceName = deviceName;
+  OobBle(
+    this._uwb,
+    this._centralManager,
+    this._peripheralManager,
+    this._serviceUuid,
+    this._rxCharacteristicUuid,
+    this._txCharacteristicUuid,
+    this._config, {
+    String? deviceName,
+  }) : _deviceName = deviceName;
 
   Future<void> start() async {
     _listenToStateChanges();
     await _handleState(_centralManager.state);
   }
 
-  void stop() {
+  void dispose() {
     _isActive = false;
     _stopAdvertising();
     _stopDiscovery();
@@ -50,17 +55,15 @@ class OobBle {
   }
 
   Future<void> _handleState(BluetoothLowEnergyState state) async {
-    if (Platform.isAndroid && state == BluetoothLowEnergyState.unauthorized) {
-      await _centralManager.authorize();
-    }
-    
     if (state == BluetoothLowEnergyState.poweredOn) {
       if (!_isActive) {
         _isActive = true;
         await _startBleOperations();
       }
     } else {
-      stop();
+      _isActive = false;
+      _stopAdvertising();
+      _stopDiscovery();
     }
   }
 
@@ -85,7 +88,6 @@ class OobBle {
   Future<void> _startDiscovery() async {
     _discoverySubscription?.cancel();
     _discoverySubscription = _centralManager.discovered.listen((event) {
-      // We found a peripheral, stop scanning and try to connect.
       _stopDiscovery();
       _handlePeripheral(event.peripheral);
     });
@@ -114,15 +116,12 @@ class OobBle {
       final rxCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _rxCharacteristicUuid);
       final txCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _txCharacteristicUuid);
 
-      // Subscribe to the TX characteristic to receive the peer's UWB address.
       await _centralManager.setCharacteristicNotifyState(peripheral, txCharacteristic, state: true);
       
-      // Write our own UWB address to the RX characteristic.
       final localAddress = await _uwb.getLocalUwbAddress();
       await _centralManager.writeCharacteristic(peripheral, rxCharacteristic, value: localAddress, type: GATTCharacteristicWriteType.withResponse);
 
     } catch (e) {
-      // Could not connect or find services/characteristics, restart discovery.
       debugPrint("Error handling peripheral: $e");
       await _startDiscovery();
     }
