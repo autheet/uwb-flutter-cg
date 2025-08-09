@@ -81,8 +81,9 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     // NI Session Manager delegate
     func uwbSessionStarted(peerId: String) {
         DispatchQueue.main.async {
-            UwbPlugin.flutterApi?.onRangingStarted(
-                peerAddress: peerId,
+            let device = UwbDevice(id: peerId, name: peerId, uwbData: nil, deviceType: .smartphone, state: .ranging)
+            UwbPlugin.flutterApi?.onUwbSessionStarted(
+                device: device,
                 completion: {e in}
             )
         }
@@ -90,8 +91,9 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     
     private func uwbPeerDisconnected(peerId: String, type: DeviceType) {
         DispatchQueue.main.async {
-            UwbPlugin.flutterApi?.onRangingStopped(
-                peerAddress: peerId,
+            let device = UwbDevice(id: peerId, name: peerId, uwbData: nil, deviceType: type, state: .disconnected)
+            UwbPlugin.flutterApi?.onUwbSessionDisconnected(
+                device: device,
                 completion: {e in}
             )
         }

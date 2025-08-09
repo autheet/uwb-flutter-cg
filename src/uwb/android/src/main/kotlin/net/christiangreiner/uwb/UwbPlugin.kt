@@ -133,7 +133,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
     }
 
     override fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig) {
-        val uwbAddress = UwbAddress.fromBytes(peerAddress)
+        val uwbAddress = UwbAddress(peerAddress)
         val nativeConfig = UwbConfig(
             preambleIndex = config.preambleIndex.toInt(),
             sessionKey = config.sessionId.toInt(),
@@ -168,7 +168,8 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
                         distance = distance.toDouble(),
                         elevation = elevation.toDouble(),
                         azimuth = azimuth.toDouble(),
-                    )
+                    ),
+                    deviceType = DeviceType.SMARTPHONE
                 )
                 flutterApi.onRanging(uwbDevice) {}
             }
