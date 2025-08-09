@@ -2,6 +2,7 @@
 // See also: https://pub.dev/packages/pigeon
 
 import Foundation
+import Flutter
 
 #if os(iOS)
   import Flutter
