@@ -24,7 +24,7 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   final UwbHostApi _hostApi = UwbHostApi();
 
   Uwb() {
-    UwbFlutterApi.setUp(this);
+    UwbFlutterApi.setup(this);
   }
 
   // --- FlutterApi Implementation ---
