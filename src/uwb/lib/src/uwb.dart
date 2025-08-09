@@ -15,6 +15,7 @@ import 'package:uwb/src/oob_ble.dart';
 class Uwb extends UwbPlatform implements UwbFlutterApi {
   final _uwbSessionStateStream = StreamController<UwbSessionState>.broadcast();
   final _uwbDataStreamController = StreamController<List<UwbDevice>>.broadcast();
+  final _permissionRequestController = StreamController<PermissionAction>.broadcast();
   final _rangingDevices = <String, UwbDevice>{};
   OobBle? _oobBle;
   CentralManager? _centralManager;
@@ -50,7 +51,9 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   
   @override
   void onPermissionRequired(PermissionAction action) {
-    // TODO: Handle permission required
+    if (!_permissionRequestController.isClosed) {
+      _permissionRequestController.add(action);
+    }
   }
 
   // --- Public API ---
@@ -62,6 +65,10 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   @override
   Stream<List<UwbDevice>> get uwbDataStream =>
       _uwbDataStreamController.stream.asBroadcastStream();
+      
+  @override
+  Stream<PermissionAction> get permissionRequestStream =>
+      _permissionRequestController.stream.asBroadcastStream();
 
   Future<void> start({
     String? deviceName,
@@ -151,6 +158,7 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   void dispose() {
     _uwbSessionStateStream.close();
     _uwbDataStreamController.close();
+    _permissionRequestController.close();
   }
 
   void _parsePlatformException(PlatformException e) {
