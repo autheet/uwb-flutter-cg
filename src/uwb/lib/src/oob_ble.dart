@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uwb/flutter_uwb.dart';
-import 'package:uwb/src/defs.dart';
 
 class OobBle {
   final Uwb _uwb;

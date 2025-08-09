@@ -103,7 +103,7 @@ class UwbListItem extends StatelessWidget {
               ],
             ),
             title: Text(
-              "${device.name}",
+              device.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(

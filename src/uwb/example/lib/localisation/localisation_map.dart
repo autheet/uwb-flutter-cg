@@ -32,7 +32,7 @@ class LocalisationMap extends CustomPainter {
       ..color = Colors.black
       ..strokeWidth = 1.0;
 
-    final double boxSize = 20.0;
+    const double boxSize = 20.0;
     final double width = size.width;
     final double height = size.height;
 
@@ -65,7 +65,7 @@ class LocalisationMap extends CustomPainter {
         Paint()..color = Colors.blue.withOpacity(0.3),
       );
 
-      final textStyle = TextStyle(color: Colors.black, fontSize: 14.0);
+      const textStyle = TextStyle(color: Colors.black, fontSize: 14.0);
       final textPainter = TextPainter(
           textAlign: TextAlign.center, textDirection: TextDirection.ltr);
 
@@ -84,7 +84,7 @@ class LocalisationMap extends CustomPainter {
     circlePaint.color = Colors.red;
     canvas.drawCircle(phone.position * scale, 10, circlePaint);
 
-    final textStyle = TextStyle(color: Colors.black, fontSize: 14.0);
+    const textStyle = TextStyle(color: Colors.black, fontSize: 14.0);
     final textPainter = TextPainter(
         textAlign: TextAlign.center, textDirection: TextDirection.ltr);
 

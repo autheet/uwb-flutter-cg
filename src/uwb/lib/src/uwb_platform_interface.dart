@@ -2,8 +2,6 @@ import 'dart:typed_data';
 
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:uwb/flutter_uwb.dart';
-import 'package:uwb/src/uwb.g.dart';
-import 'package:uwb/src/states.dart';
 
 abstract class UwbPlatform extends PlatformInterface {
   UwbPlatform() : super(token: _token);

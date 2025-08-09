@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
@@ -7,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:uwb/src/uwb.g.dart';
 import 'package:uwb/src/uwb_platform_interface.dart';
 import 'package:uwb/src/exceptions.dart';
-import 'package:uwb/src/defs.dart';
 import 'package:uwb/src/states.dart';
 import 'package:uwb/src/oob_ble.dart';
 
