@@ -1,7 +1,13 @@
 import Foundation
 import NearbyInteraction
 import os
-import Flutter
+
+// MARK: - Custom Native Error
+enum NISessionManagerError: Error {
+    case configurationCreationError(String)
+    case invalidConfiguration
+}
+
 
 // MARK: - NISessionManagerDelegate Protocol
 protocol NISessionManagerDelegate: AnyObject {
@@ -62,7 +68,6 @@ class NISessionManager: NSObject, NISessionDelegate {
         }
         
         session.invalidate()
-        // The rest of the cleanup happens in the didInvalidateWith callback
     }
     
     // MARK: - NISessionDelegate Methods
@@ -73,7 +78,6 @@ class NISessionManager: NSObject, NISessionDelegate {
             return
         }
         
-        // Associate the accessory's discovery token with our peerId
         peerTokenToId[object.discoveryToken] = peerId
         
         logger.log("Generated shareable configuration data for peer \(peerId).")
@@ -83,7 +87,6 @@ class NISessionManager: NSObject, NISessionDelegate {
     internal func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         guard let nearbyObject = nearbyObjects.first else { return }
         
-        // Find the peerId associated with this object's discovery token
         guard let peerId = peerTokenToId[nearbyObject.discoveryToken] else {
             logger.warning("Received update for an unknown discovery token.")
             return
@@ -116,21 +119,16 @@ class NISessionManager: NSObject, NISessionDelegate {
     internal func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
         guard let peerId = sessionToPeerId[session] else { return }
         
-        let reasonString: String
         switch reason {
             case .peerEnded:
-                reasonString = "Peer Ended"
                 logger.log("Peer \(peerId) ended the session.")
             case .timeout:
-                reasonString = "Timeout"
                 logger.log("Session with peer \(peerId) timed out.")
             default:
-                reasonString = "Unknown"
                 logger.log("Session with peer \(peerId) removed for unknown reason: \(reason.rawValue)")
         }
 
         delegate?.sessionManager(didStop: true, for: peerId)
-        // Invalidate the session, which will trigger didInvalidateWith for cleanup
         session.invalidate()
     }
     
@@ -142,6 +140,7 @@ class NISessionManager: NSObject, NISessionDelegate {
     internal func sessionSuspensionEnded(_ session: NISession) {
         guard let peerId = sessionToPeerId[session] else { return }
         logger.log("Session suspension ended for peer \(peerId). Attempting to rerun.")
+        
         if let config = session.configuration {
             session.run(config)
         } else {
@@ -158,7 +157,6 @@ class NISessionManager: NSObject, NISessionDelegate {
 
         logger.error("Session for peer \(peerId) invalidated with error: \(error.localizedDescription)")
         
-        // Clean up all data associated with this peer
         sessions.removeValue(forKey: peerId)
         if let tokenToRemove = peerTokenToId.first(where: { $1 == peerId })?.key {
             peerTokenToId.removeValue(forKey: tokenToRemove)

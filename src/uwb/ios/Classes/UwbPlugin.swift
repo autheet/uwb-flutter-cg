@@ -24,48 +24,43 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionManagerDel
      
     // MARK: - UwbHostApi Implementation
     
-    // This method is not used on iOS for initializing ranging. 
-    // The discovery token is generated on demand for peer-to-peer, 
-    // and accessory configuration is received from the peer.
     func getLocalUwbAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        let dummyData = FlutterStandardTypedData(bytes: Data())
-        completion(.success(dummyData))
+        // This is not used on iOS, but we need to return something.
+        completion(.success(FlutterStandardTypedData(bytes: Data())))
     }
     
     func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig, completion: @escaping (Result<Void, Error>) -> Void) {
         let peerId = String(config.sessionId)
         
         do {
-            var niConfig: NIConfiguration?
+            let niConfig: NIConfiguration
 
-            // Determine if this is an accessory (Android) or a peer (iOS)
-            // A non-empty peerAddress indicates an accessory configuration from a FIRA-compliant device.
             if !peerAddress.data.isEmpty {
-                logger.log("Received accessory configuration data. Creating NINearbyAccessoryConfiguration.")
+                logger.log("Creating NINearbyAccessoryConfiguration.")
                 niConfig = try NINearbyAccessoryConfiguration(data: peerAddress.data)
             } else {
-                // For iOS-to-iOS, we expect the sessionKeyInfo to contain the peer's discovery token.
                 guard let tokenData = config.sessionKeyInfo?.data,
                       let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
-                    throw FlutterError(code: "UWB_ERROR", message: "Missing or invalid discovery token for peer configuration.", details: nil)
+                    throw NISessionManagerError.invalidConfiguration
                 }
-                logger.log("Received peer discovery token. Creating NINearbyPeerConfiguration.")
+                logger.log("Creating NINearbyPeerConfiguration.")
                 niConfig = NINearbyPeerConfiguration(peerToken: discoveryToken)
             }
 
-            if let configuration = niConfig {
-                 if #available(iOS 16.0, *) {
-                    configuration.isCameraAssistanceEnabled = true
-                }
-                niManager.startRanging(peerId: peerId, configuration: configuration)
-                completion(.success(()))
-            } else {
-                 throw FlutterError(code: "UWB_ERROR", message: "Could not create a valid NIConfiguration.", details: nil)
+            if #available(iOS 16.0, *) {
+                niConfig.isCameraAssistanceEnabled = true
             }
 
-        } catch {
-            logger.error("Error starting ranging session for peer \(peerId): \(error.localizedDescription)")
-            completion(.failure(error))
+            niManager.startRanging(peerId: peerId, configuration: niConfig)
+            completion(.success(()))
+
+        } catch let error as NISessionManagerError {
+             logger.error("Error starting ranging session for peer \(peerId): \(error.localizedDescription)")
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to start ranging: \(error)", details: nil)))
+        }
+        catch {
+             logger.error("An unexpected error occurred while starting ranging for peer \(peerId): \(error.localizedDescription)")
+            completion(.failure(FlutterError(code: "UWB_UNEXPECTED_ERROR", message: "An unexpected error occurred: \(error)", details: nil)))
         }
     }
     
