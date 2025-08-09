@@ -43,11 +43,10 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     }
     
     // Flutter API
-    func startRanging(peerAddress: String, config: UwbSessionConfig, completion: @escaping (Result<Void, Error>) -> Void) {
+    func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig, completion: @escaping (Result<Void, Error>) -> Void) {
         do {
-            let tokenData = Data(peerAddress.utf8)
-            let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData)
-            self.niManager.startSessionWithPhone(peerId: peerAddress, peerDiscoveryToken: discoveryToken!, config: config)
+            let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: peerAddress.data)
+            self.niManager.startSessionWithPhone(peerId: String(data: peerAddress.data, encoding: .utf8)!, peerDiscoveryToken: discoveryToken!, config: config)
         } catch {
             completion(.failure(error))
         }
@@ -67,8 +66,8 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     }
        
     // Flutter API
-    func isUwbSupported(completion: @escaping (Result<Bool, Error>) -> Void) {
-        completion(.success(NISession.isSupported))
+    func isUwbSupported() throws -> Bool {
+        return NISession.isSupported
     }
 
     // NI Session Manager delegate
@@ -82,13 +81,8 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     // NI Session Manager delegate
     func uwbSessionStarted(peerId: String) {
         DispatchQueue.main.async {
-            UwbPlugin.flutterApi?.onUwbSessionStarted(
-                device: UwbDevice(
-                    id: peerId,
-                    name: peerId,
-                    deviceType: DeviceType.smartphone,
-                    state: DeviceState.ranging
-                ),
+            UwbPlugin.flutterApi?.onRangingStarted(
+                peerAddress: peerId,
                 completion: {e in}
             )
         }
@@ -96,13 +90,8 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     
     private func uwbPeerDisconnected(peerId: String, type: DeviceType) {
         DispatchQueue.main.async {
-            UwbPlugin.flutterApi?.onUwbSessionDisconnected(
-                device: UwbDevice(
-                    id: peerId,
-                    name: peerId,
-                    deviceType: type,
-                    state: DeviceState.disconnected
-                ),
+            UwbPlugin.flutterApi?.onRangingStopped(
+                peerAddress: peerId,
                 completion: {e in}
             )
         }
