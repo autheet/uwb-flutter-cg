@@ -102,7 +102,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger : FlutterBinaryMessenger = registrar.messenger()
         let api : UwbHostApi & NSObjectProtocol = UwbPlugin.init()
-        UwbHostApi.setUp(binaryMessenger: messenger, api: api)
+        UwbHostApiSetup.setUp(binaryMessenger: messenger, api: api)
         
         // Initialize all event channels
         let uwbDataChannel = FlutterEventChannel(name: "uwb_plugin/uwbData", binaryMessenger: messenger)
