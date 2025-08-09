@@ -1,5 +1,6 @@
 package net.christiangreiner.uwb
 
+import UwbData
 import UwbDevice
 import UwbFlutterApi
 import UwbHostApi
@@ -20,7 +21,6 @@ import io.flutter.plugin.common.EventChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import net.christiangreiner.uwb.oob.UwbConfig
 
@@ -128,33 +128,30 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
         callback(Result.success(uwbConnectionManager.localUwbAddress!!.address))
     }
 
-    override fun isUwbSupported(callback: (Result<Boolean>) -> Unit) {
-        callback(Result.success(value = this.uwbSupported()))
+    override fun isUwbSupported(): Boolean {
+        return this.uwbSupported()
     }
 
-    override fun startRanging(peerAddress: String, config: UwbSessionConfig, callback: (Result<Unit>) -> Unit) {
-        val uwbAddress = UwbAddress.fromBytes(peerAddress.toByteArray())
+    override fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig) {
+        val uwbAddress = UwbAddress.fromBytes(peerAddress)
         val nativeConfig = UwbConfig(
             preambleIndex = config.preambleIndex.toInt(),
             sessionKey = config.sessionId.toInt(),
             uwbAddress = uwbAddress.address
         )
         coroutineScope.launch {
-            uwbConnectionManager.startRanging(peerAddress, uwbAddress, nativeConfig).collect { rangingResult ->
-                onRangingResult(peerAddress, rangingResult)
+            uwbConnectionManager.startRanging(String(peerAddress), uwbAddress, nativeConfig).collect { rangingResult ->
+                onRangingResult(String(peerAddress), rangingResult)
             }
         }
-        callback(Result.success(Unit))
     }
     
-    override fun stopRanging(peerAddress: String, callback: (Result<Unit>) -> Unit) {
+    override fun stopRanging(peerAddress: String) {
         this.uwbConnectionManager.stopRanging(peerAddress)
-        callback(Result.success(Unit))
     }
 
-    override fun stopUwbSessions(callback: (Result<Unit>) -> Unit) {
+    override fun stopUwbSessions() {
         this.uwbConnectionManager.stopRanging()
-        callback(Result.success(Unit))
     }
 
     private fun onRangingResult(peerAddress: String, rangingResult: RangingResult) {
@@ -171,11 +168,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
                         distance = distance.toDouble(),
                         elevation = elevation.toDouble(),
                         azimuth = azimuth.toDouble(),
-                    ),
-                    deviceType = DeviceType.SMARTPHONE,
-                    state = DeviceState.RANGING
+                    )
                 )
-                uwbDataHandler.sendData(uwbDevice)
+                flutterApi.onRanging(uwbDevice) {}
             }
             is RangingResult.RangingResultPeerDisconnected -> {
                 Log.e(LOG_TAG, "Ranging result peer disconnected: ${rangingResult.device.address}")
