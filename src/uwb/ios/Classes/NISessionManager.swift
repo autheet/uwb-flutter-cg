@@ -111,7 +111,7 @@ class NISessionManager: NSObject, NISessionDelegate {
     }
     
     // Nach erhalt des Tokens von einem iPhone
-    public func startSessionWithPhone(peerId: String, peerDiscoveryToken: NIDiscoveryToken) {
+    public func startSessionWithPhone(peerId: String, peerDiscoveryToken: NIDiscoveryToken, config: UwbSessionConfig) {
         guard sessions[peerId] != nil else {
             logger.error("Session with \(peerId) doesn't exists.")
             return

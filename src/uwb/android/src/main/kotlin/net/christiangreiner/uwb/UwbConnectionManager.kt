@@ -23,6 +23,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
+import net.christiangreiner.uwb.oob.UwbConfig
 import java.util.concurrent.TimeUnit
 
 class UwbConnectionManager(context: Context, private var appCoroutineScope: CoroutineScope) {
@@ -32,10 +33,6 @@ class UwbConnectionManager(context: Context, private var appCoroutineScope: Coro
 
     // Callbacks
     var onUwbRangingStarted: ((String) -> Unit)? = null
-
-    private val sessionKeyInfo : ByteArray = byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
-    private val uwbChannel: Int = 9
-    private val preambleIndex: Int = 10
 
     // TODO: Each Session should have an own contollerSessionScope
     private var controllerSessionScopeSingle: Single<UwbControllerSessionScope>? = null
@@ -84,7 +81,7 @@ class UwbConnectionManager(context: Context, private var appCoroutineScope: Coro
         this.localUwbAddress = controleeSessionScope!!.localAddress
     }
 
-    fun startRanging(endpointId: String, endpointUwbAddress: UwbAddress, sessionKey: Int, preambleIndex: Int) : Flow<RangingResult> = channelFlow{
+    fun startRanging(endpointId: String, endpointUwbAddress: UwbAddress, config: UwbConfig) : Flow<RangingResult> = channelFlow{
         if (disposableMap.containsKey(endpointId)) {
             // throw Exception
             Log.e(LOG_TAG, "Ranging with $endpointId exists.")
@@ -94,11 +91,11 @@ class UwbConnectionManager(context: Context, private var appCoroutineScope: Coro
             var sessionFlow: Flowable<RangingResult>? = null
             var rangingParams = RangingParameters(
                 uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
-                sessionId = sessionKey,
+                sessionId = config.sessionKey,
                 subSessionId = 0,
-                sessionKeyInfo = sessionKeyInfo,
+                sessionKeyInfo = null,
                 subSessionKeyInfo = null,
-                complexChannel = UwbComplexChannel(uwbChannel, this@UwbConnectionManager.preambleIndex),
+                complexChannel = UwbComplexChannel(9, config.preambleIndex),
                 peerDevices = listOf(UwbDevice(endpointUwbAddress)),
                 updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
             )
@@ -121,7 +118,7 @@ class UwbConnectionManager(context: Context, private var appCoroutineScope: Coro
                 Log.e(LOG_TAG, "RANGING FAIL, both controller and controlee are null")
             }
 
-            Log.i(LOG_TAG, "Start session with config: preambleIndex: $preambleIndex, Local Address: $localUwbAddress, Peer Address: $endpointUwbAddress, Session Key: $sessionKey")
+            Log.i(LOG_TAG, "Start session with config: preambleIndex: ${config.preambleIndex}, Local Address: $localUwbAddress, Peer Address: $endpointUwbAddress, Session Key: ${config.sessionKey}")
 
             var disposable = sessionFlow!!
                 .delay(1, TimeUnit.SECONDS)

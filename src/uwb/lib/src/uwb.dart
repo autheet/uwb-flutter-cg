@@ -1,197 +1,118 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:uwb/flutter_uwb.dart';
+import 'package:uwb/src/uwb.g.dart';
 import 'package:uwb/src/uwb_platform_interface.dart';
+import 'package:uwb/src/exceptions.dart';
+import 'package:uwb/src/defs.dart';
+import 'package:uwb/src/states.dart';
+import 'package:uwb/src/oob_ble.dart';
 
 // UWB Instance for Plugin
-class Uwb extends UwbPlatform {
-  /// Returns a list of all discovered devices
-  /// This list is updated whenever a new device is discovered, lost, connected
-  /// or disconnected.
-  Stream<Iterable<UwbDevice>> get discoveredDevicesStream =>
-      _discoveredDevicesStream.stream.asBroadcastStream();
+class Uwb extends UwbPlatform implements UwbFlutterApi {
+  final _uwbSessionStateStream = StreamController<UwbSessionState>.broadcast();
+  final _uwbDataStreamController = StreamController<List<UwbDevice>>.broadcast();
+  final _permissionRequestController = StreamController<PermissionAction>.broadcast();
+  final _rangingDevices = <String, UwbDevice>{};
+  OobBle? _oobBle;
 
-  /// Notifies about the current state of the discovery process
-  Stream<DiscoveryDeviceState> get discoveryStateStream =>
-      _discoveryStateStream.stream.asBroadcastStream();
+  final UwbHostApi _hostApi = UwbHostApi();
 
-  Stream<Iterable<UwbDevice>> get rangingDevicesStream =>
-      _rangingDevicesStream.stream.asBroadcastStream();
+  Uwb() {
+    UwbFlutterApi.setUp(this);
+  }
 
+  // --- FlutterApi Implementation ---
+
+  @override
+  void onRanging(UwbDevice device) {
+    _rangingDevices[device.id] = device;
+    if (!_uwbDataStreamController.isClosed) {
+      _uwbDataStreamController.add(_rangingDevices.values.toList());
+    }
+  }
+  
+  @override
+  void onUwbSessionStarted(UwbDevice device) {
+    _rangingDevices[device.id] = device;
+    _uwbSessionStateStream.add(UwbSessionStartedState(device));
+  }
+
+  @override
+  void onUwbSessionDisconnected(UwbDevice device) {
+    _rangingDevices.remove(device.id);
+    _uwbSessionStateStream.add(UwbSessionDisconnectedState(device));
+  }
+  
+  @override
+  void onPermissionRequired(PermissionAction action) {
+    _permissionRequestController.add(action);
+  }
+
+  // --- Public API ---
+
+  @override
   Stream<UwbSessionState> get uwbSessionStateStream =>
       _uwbSessionStateStream.stream.asBroadcastStream();
 
-  /// Returns a list of all current ranging devices
-  Stream<Iterable<UwbDevice>> get uwbDataStream {
-    return _uwbDataChannel.receiveBroadcastStream().map(
-      (data) {
-        var device = _parseUwbData(data);
-        _rangingDevices[device.id] = device;
-        return _rangingDevices.values.toList();
-      },
-    ).asBroadcastStream();
-  }
-
-  final _discoveryStateStream =
-      StreamController<DiscoveryDeviceState>.broadcast();
-  final _discoveredDevicesStream =
-      StreamController<Iterable<UwbDevice>>.broadcast();
-
-  final _uwbSessionStateStream = StreamController<UwbSessionState>.broadcast();
-  final _rangingDevicesStream =
-      StreamController<Iterable<UwbDevice>>.broadcast();
-
-  final _rangingDevices = <String, UwbDevice>{};
-  final _discoveredDevices = <String, UwbDevice>{};
-
-  // Stream Channels Setup
-  final UwbHostApi _hostApi = UwbHostApi();
-  final EventChannel _uwbDataChannel = const EventChannel('uwb_plugin/uwbData');
-  late UwbFlutterApiHandler _flutterApiHandler;
-
-  Uwb() {
-    // Setup UWB API Handler
-    _flutterApiHandler = UwbFlutterApiHandler(
-      onDiscoveryDeviceFound: _onDiscoveryDeviceFound,
-      onDiscoveryDeviceLost: _onDiscoveryDeviceLost,
-      onDiscoveryDeviceConnected: _onDiscoveryDeviceConnected,
-      onDiscoveryDeviceDisconnected: _onDiscoveryDeviceDisconnected,
-      onDiscoveryDeviceRejected: _onDiscoveryDeviceRejected,
-      onDiscoveryConnectionRequestReceived:
-          _onDiscoveryConnectionRequestReceived,
-      onPermissionRequired: _onPermissionRequired,
-      onUwbSessionStarted: _onUwbSessionStarted,
-      onUwbSessionDisconnected: _onUwbSessionDisconnected,
-    );
-
-    UwbFlutterApi.setup(_flutterApiHandler);
-  }
-
-  int maxConnections = -1;
-
-  void _onDiscoveryDeviceFound(UwbDevice device) {
-    if (!_discoveredDevices.containsKey(device.id)) {
-      _discoveredDevices[device.id] = device;
-      _discoveredDevicesStream.add(_discoveredDevices.values);
-
-      _discoveryStateStream.add(
-        DeviceFoundState(device),
-      );
-    }
-  }
-
-  void _onDiscoveryDeviceLost(UwbDevice device) {
-    _discoveredDevices.remove(device.id);
-    _discoveredDevicesStream.add(_discoveredDevices.values);
-
-    _discoveryStateStream.add(
-      DeviceLostState(device),
-    );
-  }
-
-  void _onDiscoveryDeviceConnected(UwbDevice device) {
-    if (_discoveredDevices.containsKey(device.id)) {
-      _discoveredDevices[device.id] = device;
-      _discoveredDevicesStream.add(_discoveredDevices.values);
-    }
-
-    _discoveryStateStream.add(
-      DeviceConnectedState(device),
-    );
-  }
-
-  void _onDiscoveryDeviceDisconnected(UwbDevice device) {
-    if (_discoveredDevices.containsKey(device.id)) {
-      _discoveredDevices[device.id] = device;
-      _discoveredDevicesStream.add(_discoveredDevices.values);
-    }
-
-    _discoveryStateStream.add(
-      DeviceDisconnectedState(device),
-    );
-  }
-
-  void _onDiscoveryDeviceRejected(UwbDevice device) {
-    _discoveryStateStream.add(DeviceInviteRejected(device));
-  }
-
-  void _onDiscoveryConnectionRequestReceived(UwbDevice device) {
-    _discoveryStateStream.add(DeviceInvitedState(device));
-  }
-
-  void _onPermissionRequired(PermissionAction action) {}
-
-  void _onUwbSessionStarted(UwbDevice device) {
-    _rangingDevices[device.id] = device;
-    _rangingDevicesStream.add(_rangingDevices.values);
-
-    // Update the discovered devices list if still connected
-    if (_discoveredDevices.containsKey(device.id)) {
-      _discoveredDevices[device.id] = device;
-      _discoveredDevicesStream.add(_discoveredDevices.values);
-    }
-
-    _uwbSessionStateStream.add(
-      UwbSessionStartedState(device),
-    );
-  }
-
-  void _onUwbSessionDisconnected(UwbDevice device) {
-    // TODO: Check if device is still connected via OOB
-    _discoveredDevices[device.id] = device;
-    _discoveredDevicesStream.add(_discoveredDevices.values);
-
-    _rangingDevices.remove(device.id);
-    _rangingDevicesStream.add(_rangingDevices.values);
-
-    _uwbSessionStateStream.add(
-      UwbSessionDisconnectedState(device),
-    );
-  }
-
-  /// Discover nearby devices
-  /// [displayName] is the name of the device that will be shown to other devices
   @override
-  Future<void> discoverDevices(String deviceName) async {
+  Stream<List<UwbDevice>> get uwbDataStream =>
+      _uwbDataStreamController.stream.asBroadcastStream();
+
+  @override
+  Stream<PermissionAction> get permissionRequestStream =>
+      _permissionRequestController.stream.asBroadcastStream();
+
+  Future<void> start({
+    String? deviceName,
+    required String serviceUuid,
+    required String rxCharacteristicUuid,
+    required String txCharacteristicUuid,
+    UwbSessionConfig? config,
+  }) async {
+    if (_oobBle != null) {
+      debugPrint("UWB session already active. Please stop the current session before starting a new one.");
+      return;
+    }
+
+    if (config == null) {
+      debugPrint("Warning: No UwbSessionConfig provided. Using default values.");
+    }
+
+    final sessionConfig = config ?? UwbSessionConfig(
+      sessionId: 1234,
+      sessionKeyInfo: null,
+      channel: 9,
+      preambleIndex: 10,
+    );
+
+    _oobBle = OobBle(
+      this,
+      UUID.fromString(serviceUuid),
+      UUID.fromString(rxCharacteristicUuid),
+      UUID.fromString(txCharacteristicUuid),
+      sessionConfig,
+      deviceName: deviceName,
+    );
+    await _oobBle!.start();
+  }
+  
+  void stop() {
+    _oobBle?.stop();
+    _oobBle = null;
+    stopUwbSessions();
+  }
+
+  @override
+  Future<void> stopRanging(String peerAddress) async {
     try {
-      return await _hostApi.discoverDevices(deviceName);
+      await _hostApi.stopRanging(peerAddress);
     } on PlatformException catch (e) {
       _parsePlatformException(e);
-    }
-  }
-
-  @override
-  Future<void> stopDiscovery() async {
-    _discoveredDevices
-        .removeWhere((key, value) => value.state != DeviceState.connected);
-    _discoveredDevicesStream.add(_discoveredDevices.values);
-    return await _hostApi.stopDiscovery();
-  }
-
-  /// Stops the UWB session with the device
-  /// [device] is the device to stop the session with
-  @override
-  Future<void> stopRanging(UwbDevice device) async {
-    try {
-      if (!_discoveredDevices.containsKey(device.id)) {
-        _discoveredDevices.remove(device.id);
-        _discoveredDevicesStream.add(_discoveredDevices.values);
-      }
-
-      await _hostApi.stopRanging(device);
-
-      if (_rangingDevices.containsKey(device.id)) {
-        _rangingDevices.remove(device.id);
-        _rangingDevicesStream.add(_rangingDevices.values);
-
-        _uwbSessionStateStream.add(
-          UwbSessionDisconnectedState(device),
-        );
-      }
-    } on PlatformException catch (e) {
-      return await Future.error(e);
     }
   }
 
@@ -201,121 +122,45 @@ class Uwb extends UwbPlatform {
       _rangingDevices.clear();
       return await _hostApi.stopUwbSessions();
     } on PlatformException catch (e) {
-      return Future.error(e);
+      _parsePlatformException(e);
     }
   }
 
-  /// Whether the device supports UWB or not
   @override
   Future<bool> isUwbSupported() async {
     return await _hostApi.isUwbSupported();
   }
 
-  /// Connects to a device and starts ranging
-  /// [device] is the device to connect to
   @override
-  Future<void> startRanging(UwbDevice device) async {
+  Future<void> startRanging(Uint8List peerAddress, UwbSessionConfig config) async {
     try {
-      return await _hostApi.startRanging(device);
+      return await _hostApi.startRanging(peerAddress, config);
     } on PlatformException catch (e) {
       _parsePlatformException(e);
     }
   }
 
-  /// Accepts or rejects a connection request from a device
-  /// Use this method after receiving a [DeviceInvitedState]
-  /// from the [discoveryStateStream].
-  /// [device] is the device to accept or reject the connection request from
   @override
-  Future<void> handleConnectionRequest(UwbDevice device, bool accept) async {
-    try {
-      return await _hostApi.handleConnectionRequest(device, accept);
-    } on PlatformException catch (e) {
-      _parsePlatformException(e);
-    }
+  Future<Uint8List> getLocalUwbAddress() async {
+    return await _hostApi.getLocalUwbAddress();
   }
 
-  void dispose() {}
+  void dispose() {
+    _uwbSessionStateStream.close();
+    _uwbDataStreamController.close();
+    _permissionRequestController.close();
+  }
 
   void _parsePlatformException(PlatformException e) {
-    throw UwbException(ErrorCode.values[int.parse(e.code)], e.message);
+    final code = int.tryParse(e.code);
+    if(code != null && code < ErrorCode.values.length) {
+      throw UwbException(ErrorCode.values[code], e.message);
+    }
   }
 
   UwbDevice _parseUwbData(String data) {
-    Map<String, dynamic> jsonData = jsonDecode(data.toString());
-    String id = jsonData['id'].toString();
-    String name = jsonData['name'].toString();
-
-    // Available: Apple API
-    Direction3D? direction;
-    if (jsonData['directionX'] != null &&
-        jsonData['directionY'] != null &&
-        jsonData['directionZ'] != null) {
-      direction = Direction3D(
-        x: jsonData['directionX'],
-        y: jsonData['directionY'],
-        z: jsonData['directionZ'],
-      );
-    }
-
-    // Available: Android and Apple API
-    double? distance;
-    if (jsonData['distance'] != null) {
-      distance = double.tryParse(
-        jsonData['distance'].toString(),
-      );
-    }
-
-    // Available: Android API and Apple Accessory API
-    double? azimuth;
-    if (jsonData['azimuth'] != null) {
-      azimuth = double.tryParse(
-        jsonData['azimuth'].toString(),
-      );
-    }
-
-    // Available: Android API and Apple Accessory API
-    double? elevation;
-    if (jsonData['elevation'] != null) {
-      elevation = double.tryParse(
-        jsonData['elevation'].toString(),
-      );
-    }
-
-    // Available: Apple API
-    double? horizontalAngle;
-    if (jsonData['horizontalAngle'] != null) {
-      horizontalAngle = double.tryParse(
-        jsonData['horizontalAngle'].toString(),
-      );
-    }
-
-    // convert elevation and azimuth to direction
-    // check if direction is null
-    /*if (azimuth != null && elevation != null) {
-      //direction = Math.toDirection3D(azimuth, elevation);
-      var angle = azimuth * (pi / 180.0);
-      var x = distance! * sin(angle);
-      var y = distance * cos(angle);
-      direction = Direction3D(x: x, y: y, z: 0);
-    }*/
-
-    DeviceType deviceType = DeviceType.smartphone;
-    if (jsonData['deviceType'] != null) {
-      deviceType = DeviceType.values[jsonData['deviceType']];
-    }
-
-    return UwbDevice(
-      id: id,
-      name: name,
-      uwbData: UwbData(
-        distance: distance,
-        azimuth: azimuth,
-        elevation: elevation,
-        direction: direction,
-        horizontalAngle: horizontalAngle,
-      ),
-      deviceType: deviceType,
-    );
+    // This method is now obsolete as ranging data comes from the onRanging callback.
+    // It's kept here to avoid breaking the EventChannel logic, but should be considered for removal.
+    return UwbDevice(id: "deprecated", name: "deprecated", deviceType: DeviceType.smartphone, state: DeviceState.ranging);
   }
 }
