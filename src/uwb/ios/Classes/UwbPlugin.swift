@@ -29,7 +29,8 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     // Flutter API
     func getLocalUwbAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
         // On iOS, the discovery token serves the same purpose as the UWB address on Android.
-        let token = self.niManager.initPhoneSession()
+        let peer = Peer(id: "", name: "")
+        let token = self.niManager.initPhoneSession(peer: peer)
         if (token != nil) {
             do {
                 let data = try NSKeyedArchiver.archivedData(withRootObject: token!, requiringSecureCoding: true)
