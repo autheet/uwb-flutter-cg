@@ -52,7 +52,6 @@ class NISessionManager: NSObject, NISessionDelegate {
         sessions[peerId] = newSession
         sessionToPeerId[newSession] = peerId
 
-        // Store the peer's discovery token for later identification in didUpdate
         if let peerConfig = configuration as? NINearbyPeerConfiguration {
             peerTokenToId[peerConfig.peerDiscoveryToken] = peerId
         }
