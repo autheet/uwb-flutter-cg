@@ -1,185 +1,119 @@
 package net.christiangreiner.uwb
 
-import UwbData
-import UwbDevice
-import UwbFlutterApi
-import UwbHostApi
-import UwbSessionConfig
-import android.Manifest
-import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
-import androidx.core.content.ContextCompat
+import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
+import androidx.core.uwb.UwbComplexChannel
+import androidx.core.uwb.UwbControllerSessionScope
+import androidx.core.uwb.UwbManager
+import androidx.core.uwb.rxjava3.controllerSessionScopeSingle
+import androidx.core.uwb.rxjava3.rangingResultsFlowable
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.embedding.engine.plugins.activity.ActivityAware
-import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.plugin.common.EventChannel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import net.christiangreiner.uwb.oob.UwbConfig
+import io.reactivex.rxjava3.disposables.Disposable
 
-/** UwbPlugin */
-class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
+class UwbPlugin : FlutterPlugin, UwbHostApi {
+    private val logTag = "UwbPlugin"
 
-    companion object {
-      lateinit var flutterApi: UwbFlutterApi
-        private set
+    private lateinit var uwbManager: UwbManager
+    private lateinit var flutterApi: UwbFlutterApi
+
+    private var controllerSessionScope: UwbControllerSessionScope? = null
+    private var rangingJob: Disposable? = null
+
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        UwbHostApi.setUp(binding.binaryMessenger, this)
+        flutterApi = UwbFlutterApi(binding.binaryMessenger)
+        uwbManager = UwbManager.createInstance(binding.applicationContext)
     }
 
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + Job())
-
-    // Android Stuff
-    private val LOG_TAG: String = "UWB Plugin"
-    private var appContext: Context? = null
-    private var appActivity: Activity? = null
-    private lateinit var packageManager: PackageManager
-    private lateinit var uwbConnectionManager: UwbConnectionManager
-    private lateinit var uwbDataHandler: UwbDataHandler
-    private var REQUIRED_PERMISSIONS: Array<String> = arrayOf()
-
-    private fun detectRequiredPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            REQUIRED_PERMISSIONS = arrayOf<String>(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.NEARBY_WIFI_DEVICES,
-                Manifest.permission.UWB_RANGING
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            REQUIRED_PERMISSIONS = arrayOf<String>(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.UWB_RANGING
-            )
-        } else {
-             REQUIRED_PERMISSIONS = arrayOf<String>(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.UWB_RANGING
-            )
-        }
-    }
-
-    override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        appContext = flutterPluginBinding.applicationContext
-        packageManager = flutterPluginBinding.applicationContext.packageManager
-
-        UwbHostApi.setUp(flutterPluginBinding.binaryMessenger, this)
-        flutterApi = UwbFlutterApi(flutterPluginBinding.binaryMessenger)
-
-        val uwbDataEventChannel =
-            EventChannel(flutterPluginBinding.binaryMessenger, "uwb_plugin/uwbData")
-
-        this.uwbDataHandler = UwbDataHandler()
-        uwbDataEventChannel.setStreamHandler(uwbDataHandler)
-
-        this.uwbConnectionManager = UwbConnectionManager(appContext!!, coroutineScope)
-        detectRequiredPermissions()
-    }
-    
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         UwbHostApi.setUp(binding.binaryMessenger, null)
-    }
-
-    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        this.appActivity = binding.activity
-    }
-
-    override fun onDetachedFromActivity() {
-        this.appActivity = null
-    }
-
-    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        this.appActivity = binding.activity
-    }
-
-    override fun onDetachedFromActivityForConfigChanges() {
-        this.appActivity = null
-    }
-
-    private fun hasPermissions(context: Context, permissions: Array<String>): Boolean {
-        for (permission in permissions) {
-            if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
-                return false
-            }
-        }
-        return true
-    }
-
-    private fun uwbSupported(): Boolean {
-        return packageManager.hasSystemFeature("android.hardware.uwb")
+        stopRanging { }
     }
 
     override fun getLocalUwbAddress(callback: (Result<ByteArray>) -> Unit) {
-        if (!hasPermissions(appContext!!, REQUIRED_PERMISSIONS)) {
-            flutterApi.onPermissionRequired(PermissionAction.REQUEST) {}
-            callback(Result.failure(Exception("Permissions not granted.")))
+        if (controllerSessionScope != null) {
+            callback(Result.success(controllerSessionScope!!.localAddress.address))
             return
         }
-        uwbConnectionManager.createControllerSession()
-        callback(Result.success(uwbConnectionManager.localUwbAddress!!.address))
+        val sessionScopeSingle = uwbManager.controllerSessionScopeSingle()
+        sessionScopeSingle.subscribe({ scope ->
+            controllerSessionScope = scope
+            callback(Result.success(scope.localAddress.address))
+        }, { error ->
+            Log.e(logTag, "Failed to get local UWB address", error)
+            callback(Result.failure(error.toFlutterError()))
+        })
     }
 
-    override fun isUwbSupported(): Boolean {
-        return this.uwbSupported()
-    }
+    override fun startRanging(
+        peerAddress: ByteArray,
+        config: UwbSessionConfig,
+        callback: (Result<Unit>) -> Unit
+    ) {
+        val scope = controllerSessionScope
+        if (scope == null) {
+            val error =
+                IllegalStateException("UWB session not initialized. Call getLocalUwbAddress first.")
+            Log.e(logTag, "Ranging failed", error)
+            callback(Result.failure(error.toFlutterError()))
+            return
+        }
 
-    override fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig) {
-        val uwbAddress = UwbAddress(peerAddress)
-        val nativeConfig = UwbConfig(
-            preambleIndex = config.preambleIndex.toInt(),
-            sessionKey = config.sessionId.toInt(),
-            uwbAddress = uwbAddress.address
-        )
-        coroutineScope.launch {
-            uwbConnectionManager.startRanging(String(peerAddress), uwbAddress, nativeConfig).collect { rangingResult ->
-                onRangingResult(String(peerAddress), rangingResult)
-            }
+        try {
+            val rangingParameters = RangingParameters(
+                uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
+                sessionId = config.sessionId.toInt(),
+                sessionKeyInfo = config.sessionKeyInfo,
+                complexChannel = UwbComplexChannel(config.channel, config.preambleIndex.toInt()),
+                peerDevices = listOf(androidx.core.uwb.UwbDevice(UwbAddress(peerAddress))),
+                updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
+            )
+
+            rangingJob = scope.rangingResultsFlowable(rangingParameters)
+                .subscribe({ rangingResult ->
+                    handleRangingResult(rangingResult, peerAddress)
+                }, { error ->
+                    Log.e(logTag, "Ranging subscription error", error)
+                    flutterApi.onRangingError(error.toFlutterError()) {}
+                })
+
+            callback(Result.success(Unit))
+        } catch (e: Exception) {
+            Log.e(logTag, "Failed to start ranging", e)
+            callback(Result.failure(e.toFlutterError()))
         }
     }
-    
-    override fun stopRanging(peerAddress: String) {
-        this.uwbConnectionManager.stopRanging(peerAddress)
-    }
 
-    override fun stopUwbSessions() {
-        this.uwbConnectionManager.stopRanging()
-    }
-
-    private fun onRangingResult(peerAddress: String, rangingResult: RangingResult) {
+    private fun handleRangingResult(rangingResult: RangingResult, peerAddressBytes: ByteArray) {
+        val device = UwbDevice(address = peerAddressBytes)
         when (rangingResult) {
             is RangingResult.RangingResultPosition -> {
-                val distance = rangingResult.position.distance?.value ?: 0f
-                val elevation = rangingResult.position.elevation?.value ?: 0f
-                val azimuth = rangingResult.position.azimuth?.value ?: 0f
-
-                val uwbDevice = UwbDevice(
-                    id = peerAddress,
-                    name = "",
-                    uwbData = UwbData(
-                        distance = distance.toDouble(),
-                        elevation = elevation.toDouble(),
-                        azimuth = azimuth.toDouble(),
-                    ),
-                    deviceType = DeviceType.SMARTPHONE
+                val position = rangingResult.position
+                val data = UwbRangingData(
+                    distance = position.distance?.value?.toDouble() ?: 0.0,
+                    azimuth = position.azimuth?.value?.toDouble() ?: 0.0,
+                    elevation = position.elevation?.value?.toDouble() ?: 0.0,
                 )
-                flutterApi.onRanging(uwbDevice) {}
+                flutterApi.onRangingResult(device, data) {}
             }
             is RangingResult.RangingResultPeerDisconnected -> {
-                Log.e(LOG_TAG, "Ranging result peer disconnected: ${rangingResult.device.address}")
-                this.uwbConnectionManager.stopRanging(peerAddress)
-            }
-            else -> {
-                Log.e(LOG_TAG, "Unexpected ranging result type")
+                flutterApi.onPeerDisconnected(device) {}
             }
         }
     }
+
+    override fun stopRanging(callback: (Result<Unit>) -> Unit) {
+        rangingJob?.dispose()
+        rangingJob = null
+        // Do not close the scope here, it can be reused.
+        // It will be closed when the plugin is detached.
+        callback(Result.success(Unit))
+    }
+}
+
+private fun Throwable.toFlutterError(): FlutterError {
+    return FlutterError("NATIVE_ERROR", this.message, this.stackTraceToString())
 }
