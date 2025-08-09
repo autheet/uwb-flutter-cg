@@ -116,6 +116,7 @@ abstract class UwbHostApi {
 
 @FlutterApi()
 abstract class UwbFlutterApi {
+  void onShareableConfigurationData(Uint8List data, String peerId);
   void onRanging(UwbDevice device);
   void onUwbSessionStarted(UwbDevice device);
   void onUwbSessionDisconnected(UwbDevice device);
