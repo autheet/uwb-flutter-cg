@@ -1,7 +1,13 @@
 package net.christiangreiner.uwb
 
+import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
@@ -11,11 +17,16 @@ import androidx.core.uwb.UwbManager
 import androidx.core.uwb.rxjava3.controllerSessionScopeSingle
 import androidx.core.uwb.rxjava3.rangingResultsFlowable
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.reactivex.rxjava3.disposables.Disposable
+import io.flutter.plugin.common.MethodChannel
 
-class UwbPlugin : FlutterPlugin, UwbHostApi {
+class UwbPlugin : FlutterPlugin, ActivityAware, UwbHostApi {
     private val logTag = "UwbPlugin"
+    private val requestCode = 1337
 
+    private var activity: Activity? = null
     private lateinit var uwbManager: UwbManager
     private lateinit var flutterApi: UwbFlutterApi
 
@@ -32,6 +43,47 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         UwbHostApi.setUp(binding.binaryMessenger, null)
         stopRanging { }
     }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+    
+    // This is the function that will be called from Dart to request permissions
+    override fun requestPermissions(callback: (Result<Boolean>) -> Unit) {
+        val act = activity
+        if (act == null) {
+            callback(Result.failure(IllegalStateException("Plugin not attached to an activity.").toFlutterError()))
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permission = Manifest.permission.UWB_RANGING
+            if (ContextCompat.checkSelfPermission(act, permission) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(act, arrayOf(permission), requestCode)
+                // We can't know the result immediately, so we return false.
+                // The app should re-query the permission status or re-trigger the action
+                // after the user has responded to the dialog.
+                callback(Result.success(false))
+            } else {
+                callback(Result.success(true))
+            }
+        } else {
+            // UWB not supported on older versions, so permission is not applicable.
+            callback(Result.success(false))
+        }
+    }
+
 
     override fun getLocalUwbAddress(callback: (Result<ByteArray>) -> Unit) {
         if (controllerSessionScope != null) {
@@ -108,8 +160,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     override fun stopRanging(callback: (Result<Unit>) -> Unit) {
         rangingJob?.dispose()
         rangingJob = null
-        // Do not close the scope here, it can be reused.
-        // It will be closed when the plugin is detached.
         callback(Result.success(Unit))
     }
 }

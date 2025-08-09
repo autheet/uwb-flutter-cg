@@ -11,9 +11,6 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     // Host > Flutter
     static var flutterApi: UwbFlutterApi? = nil
     
-    // Event Channels Data Handler
-    static var uwbDataHandler: UwbDataHandler? = nil
-        
     // Handles all NI Sessions
     private var niManager: NISessionManager = NISessionManager()
     
@@ -22,13 +19,12 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     override init() {
         super.init()
         self.niManager.permissionRequiredHandler = uwbPermissionRequired
-        self.niManager.uwbSessionStarted = uwbSessionStarted
+        self.niManager.rangingDataCallback = onRangingResult
         self.niManager.uwbSessionStopped = uwbPeerDisconnected
     }
      
     // Flutter API
     func getLocalUwbAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        // On iOS, the discovery token serves the same purpose as the UWB address on Android.
         let peer = Peer(id: "", name: "")
         let token = self.niManager.initPhoneSession(peer: peer)
         if (token != nil) {
@@ -44,31 +40,36 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     }
     
     // Flutter API
-    func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig, completion: @escaping (Result<Void, Error>) -> Void) {
+    func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig) throws {
         do {
             let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: peerAddress.data)
             self.niManager.startSessionWithPhone(peerId: String(data: peerAddress.data, encoding: .utf8)!, peerDiscoveryToken: discoveryToken!, config: config)
         } catch {
-            completion(.failure(error))
+            throw FlutterError(code: "uwb_error", message: "Failed to unarchive discovery token.", details: nil)
         }
-        completion(.success(()))
     }
     
     // Flutter API
-    func stopRanging(peerAddress: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    func stopRanging(peerAddress: String) throws {
         self.niManager.stopSession(peerId: peerAddress)
-        completion(.success(()))
     }
     
     // Flutter API
-    func stopUwbSessions(completion: @escaping (Result<Void, Error>) -> Void) {
+    func stopUwbSessions() throws {
         self.niManager.stopSessions()
-        completion(.success(()))
     }
        
     // Flutter API
     func isUwbSupported() throws -> Bool {
         return NISession.isSupported
+    }
+    
+    // Flutter API
+    func requestPermissions(completion: @escaping (Result<Bool, Error>) -> Void) {
+        // On iOS, permissions are handled implicitly by the NISession.
+        // If a permission is required, the `permissionRequiredHandler` will be called.
+        // We can't know the result immediately, so we return true and let the handler deal with it.
+        completion(.success(true))
     }
 
     // NI Session Manager delegate
@@ -80,23 +81,17 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     }
     
     // NI Session Manager delegate
-    func uwbSessionStarted(peerId: String) {
+    func onRangingResult(peerId: String, rangingData: UwbRangingData) {
         DispatchQueue.main.async {
-            let device = UwbDevice(id: peerId, name: peerId, uwbData: nil, deviceType: .smartphone, state: .ranging)
-            UwbPlugin.flutterApi?.onUwbSessionStarted(
-                device: device,
-                completion: {e in}
-            )
+            let device = UwbDevice(address: peerId.data(using: .utf8)!)
+            UwbPlugin.flutterApi?.onRangingResult(device: device, rangingData: rangingData) { _ in }
         }
     }
     
-    private func uwbPeerDisconnected(peerId: String, type: DeviceType) {
+    private func uwbPeerDisconnected(peerId: String) {
         DispatchQueue.main.async {
-            let device = UwbDevice(id: peerId, name: peerId, uwbData: nil, deviceType: type, state: .disconnected)
-            UwbPlugin.flutterApi?.onUwbSessionDisconnected(
-                device: device,
-                completion: {e in}
-            )
+            let device = UwbDevice(address: peerId.data(using: .utf8)!)
+            UwbPlugin.flutterApi?.onPeerDisconnected(device: device) { _ in }
         }
     }
     
@@ -104,11 +99,6 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
         let messenger : FlutterBinaryMessenger = registrar.messenger()
         let api : UwbHostApi & NSObjectProtocol = UwbPlugin.init()
         UwbHostApiSetup.setUp(binaryMessenger: messenger, api: api)
-        
-        // Initialize all event channels
-        let uwbDataChannel = FlutterEventChannel(name: "uwb_plugin/uwbData", binaryMessenger: messenger)
-        uwbDataHandler = UwbDataHandler()
-        uwbDataChannel.setStreamHandler(uwbDataHandler)
         
         flutterApi = UwbFlutterApi(binaryMessenger: messenger)
     }
