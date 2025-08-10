@@ -40,9 +40,9 @@ android {
         jvmTarget = '1.8'
     }
 
-    // Correctly define the source directory for all Kotlin files
+    // This is the standard configuration to include all Kotlin source files.
     sourceSets {
-        main.java.srcDirs = ['src/main/kotlin']
+        main.java.srcDirs += 'src/main/kotlin'
     }
 
     defaultConfig {
@@ -50,23 +50,7 @@ android {
     }
 
     dependencies {
-        testImplementation 'org.jetbrains.kotlin:kotlin-test'
-        testImplementation 'org.mockito:mockito-core:5.0.0'
-        implementation("androidx.core.uwb:uwb-rxjava3:1.0.0-alpha08")
+        implementation 'androidx.core:core-ktx:1.9.0'
         implementation("androidx.core.uwb:uwb:1.0.0-alpha08")
-        implementation("com.google.android.gms:play-services-nearby:19.0.0")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.9")
-    }
-
-    testOptions {
-        unitTests.all {
-            useJUnitPlatform()
-
-            testLogging {
-               events "passed", "skipped", "failed", "standardOut", "standardError"
-               outputs.upToDateWhen {false}
-               showStandardStreams = true
-            }
-        }
     }
 }
