@@ -2,7 +2,6 @@
 // See also: https://pub.dev/packages/pigeon
 
 import Foundation
-import Flutter
 
 #if os(iOS)
   import Flutter
@@ -376,6 +375,7 @@ class UwbFlutterApiCodec: FlutterStandardMessageCodec {
 
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol UwbFlutterApiProtocol {
+  func onShareableConfigurationData(data dataArg: FlutterStandardTypedData, peerId peerIdArg: String, completion: @escaping (Result<Void, FlutterError>) -> Void)
   func onRanging(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
   func onUwbSessionStarted(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
   func onUwbSessionDisconnected(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void)
@@ -388,6 +388,24 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
   }
   var codec: FlutterStandardMessageCodec {
     return UwbFlutterApiCodec.shared
+  }
+  func onShareableConfigurationData(data dataArg: FlutterStandardTypedData, peerId peerIdArg: String, completion: @escaping (Result<Void, FlutterError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onShareableConfigurationData"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([dataArg, peerIdArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(FlutterError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
   }
   func onRanging(device deviceArg: UwbDevice, completion: @escaping (Result<Void, FlutterError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging"

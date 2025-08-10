@@ -25,7 +25,7 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     UwbFlutterApi.setup(this);
   }
 
-  // --- FlutterApi Implementation ---
+  // --- FlutterApi Implementation (Internal) ---
 
   @override
   void onRanging(UwbDevice device) {
@@ -54,6 +54,13 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     }
   }
 
+  @override
+  void onShareableConfigurationData(Uint8List data, String peerId) {
+    // This is the internal handshake logic.
+    // It receives the iOS-generated config data and forwards it to the peer via BLE.
+    _oobBle?.sendShareableConfig(peerId: peerId, data: data);
+  }
+
   // --- Public API ---
 
   @override
@@ -71,8 +78,8 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   Future<void> start({
     String? deviceName,
     required String serviceUuid,
-    required String rxCharacteristicUuid,
-    required String txCharacteristicUuid,
+    required String handshakeCharacteristicUuid,
+    required String platformCharacteristicUuid,
     UwbSessionConfig? config,
   }) async {
     if (_oobBle != null) {
@@ -99,8 +106,8 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
       _centralManager!,
       _peripheralManager!,
       UUID.fromString(serviceUuid),
-      UUID.fromString(rxCharacteristicUuid),
-      UUID.fromString(txCharacteristicUuid),
+      UUID.fromString(handshakeCharacteristicUuid),
+      UUID.fromString(platformCharacteristicUuid),
       sessionConfig,
       deviceName: deviceName,
     );
@@ -138,6 +145,8 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
   Future<bool> isUwbSupported() async {
     return await _hostApi.isUwbSupported();
   }
+
+  // --- Internal Methods (called by OobBle) ---
 
   @override
   Future<void> startRanging(Uint8List peerAddress, UwbSessionConfig config) async {

@@ -10,7 +10,7 @@ import 'package:pigeon/pigeon.dart';
     kotlinOut:
         'android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt',
     kotlinOptions: KotlinOptions(),
-    swiftOut: 'ios/Classes/Uwb.g.swift',
+    swiftOut: 'ios/Classes/Uwb.g.swift', // CORRECTED path
     swiftOptions: SwiftOptions(),
     dartPackageName: 'uwb',
   ),

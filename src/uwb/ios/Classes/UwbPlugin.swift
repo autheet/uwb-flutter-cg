@@ -25,8 +25,8 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionManagerDel
     // MARK: - UwbHostApi Implementation
     
     func getLocalUwbAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        // This is not used on iOS, but we need to return something.
-        // On iOS, the discovery token is generated and shared out-of-band.
+        // This is not used on iOS for direct ranging, as discovery tokens are exchanged out-of-band.
+        // We return empty data as a placeholder.
         completion(.success(FlutterStandardTypedData(bytes: Data())))
     }
     
@@ -36,20 +36,19 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionManagerDel
         var niConfig: NIConfiguration
 
         if !peerAddress.data.isEmpty {
-            logger.log("Creating NINearbyAccessoryConfiguration.")
+            logger.log("Creating NINearbyAccessoryConfiguration with provided data.")
             niConfig = try NINearbyAccessoryConfiguration(data: peerAddress.data)
         } else {
             guard let tokenData = config.sessionKeyInfo?.data,
                   let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
                 throw FlutterError(code: "UWB_ERROR", message: "Missing or invalid discovery token for peer configuration.", details: nil)
             }
-            logger.log("Creating NINearbyPeerConfiguration.")
+            logger.log("Creating NINearbyPeerConfiguration with discovery token.")
             niConfig = NINearbyPeerConfiguration(peerToken: discoveryToken)
         }
 
-        if #available(iOS 16.0, *) {
-            niConfig.isCameraAssistanceEnabled = true
-        }
+        // isCameraAssistanceEnabled should be disabled by default, as requested.
+        // No code here to enable it.
 
         niManager.startRanging(peerId: peerId, configuration: niConfig)
     }
@@ -70,6 +69,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionManagerDel
     
     func sessionManager(didGenerateShareableConfigurationData data: Data, for peerId: String) {
         let flutterData = FlutterStandardTypedData(bytes: data)
+        // Call the newly generated Pigeon method to send data back to Flutter
         UwbPlugin.flutterApi?.onShareableConfigurationData(data: flutterData, peerId: peerId) { _ in }
     }
     

@@ -20,6 +20,7 @@ class OobBle {
   StreamSubscription<GATTCharacteristicNotifiedEventArgs>?
       _notificationSubscription;
 
+  final Map<String, Peripheral> _discoveredPeripherals = {};
   bool _isActive = false;
 
   OobBle(
@@ -44,6 +45,7 @@ class OobBle {
     _stopDiscovery();
     _centralStateSubscription?.cancel();
     _notificationSubscription?.cancel();
+    _discoveredPeripherals.clear();
   }
 
   void _listenToStateChanges() {
@@ -87,8 +89,10 @@ class OobBle {
   Future<void> _startDiscovery() async {
     _discoverySubscription?.cancel();
     _discoverySubscription = _centralManager.discovered.listen((event) {
-      _stopDiscovery();
-      _handlePeripheral(event.peripheral);
+      if (!_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
+        _discoveredPeripherals[event.peripheral.uuid.toString()] = event.peripheral;
+        _handlePeripheral(event.peripheral);
+      }
     });
 
     _notificationSubscription?.cancel();
@@ -107,49 +111,34 @@ class OobBle {
     _discoverySubscription?.cancel();
   }
 
+  Future<void> sendShareableConfig({required String peerId, required Uint8List data}) async {
+    final peripheral = _discoveredPeripherals[peerId];
+    if (peripheral == null) {
+      debugPrint("Error: Could not find peripheral with ID $peerId to send shareable config.");
+      return;
+    }
+
+    try {
+      final services = await _centralManager.discoverGATT(peripheral);
+      final service = services.firstWhere((s) => s.uuid == _serviceUuid);
+      final characteristic = service.characteristics.firstWhere((c) => c.uuid == _txCharacteristicUuid);
+      
+      await _centralManager.writeCharacteristic(peripheral, characteristic, value: data, type: GATTCharacteristicWriteType.withResponse);
+      debugPrint("Successfully sent shareable config to peer $peerId");
+    } catch (e) {
+      debugPrint("Error sending shareable config to peer $peerId: $e");
+    }
+  }
+
   void _handlePeripheral(Peripheral peripheral) async {
     try {
       await _centralManager.connect(peripheral);
       await Future.delayed(const Duration(milliseconds: 500));
       final services = await _centralManager.discoverGATT(peripheral);
 
-      GATTService? gattService;
-      for (final s in services) {
-        if (s.uuid == _serviceUuid) {
-          gattService = s;
-          break;
-        }
-      }
-
-      if (gattService == null) {
-        debugPrint(
-            "UWB service not found. Disconnecting and restarting discovery.");
-        await _centralManager.disconnect(peripheral);
-        await _startDiscovery();
-        return;
-      }
-
-      GATTCharacteristic? rxCharacteristic;
-      for (final c in gattService.characteristics) {
-        if (c.uuid == _rxCharacteristicUuid) {
-          rxCharacteristic = c;
-        }
-      }
-
-      GATTCharacteristic? txCharacteristic;
-      for (final c in gattService.characteristics) {
-        if (c.uuid == _txCharacteristicUuid) {
-          txCharacteristic = c;
-        }
-      }
-
-      if (rxCharacteristic == null || txCharacteristic == null) {
-        debugPrint(
-            "UWB characteristics not found. Disconnecting and restarting discovery.");
-        await _centralManager.disconnect(peripheral);
-        await _startDiscovery();
-        return;
-      }
+      final gattService = services.firstWhere((s) => s.uuid == _serviceUuid);
+      final rxCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _rxCharacteristicUuid);
+      final txCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _txCharacteristicUuid);
 
       await _centralManager.setCharacteristicNotifyState(peripheral,
           txCharacteristic, state: true);
@@ -164,10 +153,9 @@ class OobBle {
           "Error handling peripheral: $e. Disconnecting and restarting discovery.");
       try {
         await _centralManager.disconnect(peripheral);
+        _discoveredPeripherals.remove(peripheral.uuid.toString());
       } catch (disconnectError) {
         debugPrint("Error during disconnect: $disconnectError");
-      } finally {
-        await _startDiscovery();
       }
     }
   }

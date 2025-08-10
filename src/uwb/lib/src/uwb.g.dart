@@ -395,6 +395,8 @@ class _UwbFlutterApiCodec extends StandardMessageCodec {
 abstract class UwbFlutterApi {
   static const MessageCodec<Object?> pigeonChannelCodec = _UwbFlutterApiCodec();
 
+  void onShareableConfigurationData(Uint8List data, String peerId);
+
   void onRanging(UwbDevice device);
 
   void onUwbSessionStarted(UwbDevice device);
@@ -404,6 +406,34 @@ abstract class UwbFlutterApi {
   void onPermissionRequired(PermissionAction action);
 
   static void setup(UwbFlutterApi? api, {BinaryMessenger? binaryMessenger}) {
+    {
+      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onShareableConfigurationData', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        __pigeon_channel.setMessageHandler(null);
+      } else {
+        __pigeon_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onShareableConfigurationData was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final Uint8List? arg_data = (args[0] as Uint8List?);
+          assert(arg_data != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onShareableConfigurationData was null, expected non-null Uint8List.');
+          final String? arg_peerId = (args[1] as String?);
+          assert(arg_peerId != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onShareableConfigurationData was null, expected non-null String.');
+          try {
+            api.onShareableConfigurationData(arg_data!, arg_peerId!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
     {
       final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
           'dev.flutter.pigeon.uwb.UwbFlutterApi.onRanging', pigeonChannelCodec,
