@@ -1,29 +1,46 @@
 package net.christiangreiner.uwb
 
-import UwbDevice
-import io.flutter.plugin.common.EventChannel
-import org.json.JSONObject
+import androidx.core.uwb.RangingResult
+import androidx.core.uwb.UwbDevice as PlatformUwbDevice // Use an alias to avoid name collision
 
-class UwbDataHandler : EventChannel.StreamHandler {
-    private var eventSink: EventChannel.EventSink? = null
-    override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-        this.eventSink = events
-    }
+class UwbDataHandler {
 
-    override fun onCancel(arguments: Any?) {
-        this.eventSink = null
-    }
+    companion object {
 
-    fun sendData(device: UwbDevice) {
-        var data = HashMap<String, Any>()
-        data["id"] = device.id
-        data["name"] = device.name!!
-        data["distance"] = device.uwbData?.distance ?: 0f
-        data["azimuth"] = device.uwbData?.azimuth ?: 0f
-        data["elevation"] = device.uwbData?.elevation ?: 0f
-        data["deviceType"] = device.deviceType.raw
-        var jsonString = JSONObject(data as Map<String, Any>?).toString()
-        this.eventSink!!.success(jsonString)
+        fun uwbDeviceToPigeon(device: PlatformUwbDevice): UwbDevice {
+            return UwbDevice.Builder()
+                .setId(device.address.toString())
+                .build()
+        }
+
+        fun rangingResultToPigeon(rangingResult: RangingResult): UwbDevice {
+            return when (rangingResult) {
+                is RangingResult.RangingResultPosition -> {
+                    val position = rangingResult.position
+                    val data = UwbData.Builder()
+                        .setDistance(position.distance?.value?.toDouble())
+                        .setAzimuth(position.azimuth?.value?.toDouble())
+                        .setElevation(position.elevation?.value?.toDouble())
+                        .build()
+                    UwbDevice.Builder()
+                        .setId(rangingResult.device.address.toString())
+                        .setUwbData(data)
+                        .setState(DeviceState.RANGING)
+                        .build()
+                }
+                is RangingResult.RangingResultLoss -> {
+                    UwbDevice.Builder()
+                        .setId(rangingResult.device.address.toString())
+                        .setState(DeviceState.LOST)
+                        .build()
+                }
+                else -> {
+                    UwbDevice.Builder()
+                        .setId(rangingResult.device.address.toString())
+                        .setState(DeviceState.UNKNOWN)
+                        .build()
+                }
+            }
+        }
     }
 }
-

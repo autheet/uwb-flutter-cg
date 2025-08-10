@@ -4,13 +4,13 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:uwb/src/uwb.g.dart';
-import 'package:uwb/src/uwb_platform_interface.dart';
 import 'package:uwb/src/exceptions.dart';
 import 'package:uwb/src/states.dart';
 import 'package:uwb/src/oob_ble.dart';
+export 'package:uwb/src/uwb.g.dart' show UwbConfig;
 
 // UWB Instance for Plugin
-class Uwb extends UwbPlatform implements UwbFlutterApi {
+class Uwb implements UwbFlutterApi {
   final _uwbSessionStateStream = StreamController<UwbSessionState>.broadcast();
   final _uwbDataStreamController = StreamController<List<UwbDevice>>.broadcast();
   final _permissionRequestController = StreamController<PermissionAction>.broadcast();
@@ -21,9 +21,10 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
 
   final UwbHostApi _hostApi = UwbHostApi();
 
-  Uwb() {
-    // UwbFlutterApi.setup(this); //This is the old way of doing it, now it is done automatically
-  }
+  static final Uwb _instance = Uwb._internal();
+  factory Uwb() => _instance;
+
+  Uwb._internal();
 
   // --- FlutterApi Implementation (Internal) ---
 
@@ -56,31 +57,26 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
 
   @override
   void onShareableConfigurationData(Uint8List data, String peerId) {
-    // This is the internal handshake logic.
-    // It receives the iOS-generated config data and forwards it to the peer via BLE.
     _oobBle?.sendShareableConfig(peerId: peerId, data: data);
   }
 
   // --- Public API ---
 
-  @override
   Stream<UwbSessionState> get uwbSessionStateStream =>
-      _uwbSessionStateStream.stream.asBroadcastStream();
+      _uwbSessionStateStream.stream;
 
-  @override
   Stream<List<UwbDevice>> get uwbDataStream =>
-      _uwbDataStreamController.stream.asBroadcastStream();
+      _uwbDataStreamController.stream;
       
-  @override
   Stream<PermissionAction> get permissionRequestStream =>
-      _permissionRequestController.stream.asBroadcastStream();
+      _permissionRequestController.stream;
 
   Future<void> start({
     String? deviceName,
     required String serviceUuid,
     required String handshakeCharacteristicUuid,
     required String platformCharacteristicUuid,
-    UwbSessionConfig? config,
+    UwbConfig? config,
   }) async {
     if (_oobBle != null) {
       debugPrint("UWB session already active. Please stop the current session before starting a new one.");
@@ -90,11 +86,7 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     _centralManager = CentralManager();
     _peripheralManager = PeripheralManager();
 
-    if (config == null) {
-      debugPrint("Warning: No UwbSessionConfig provided. Using default values.");
-    }
-
-    final sessionConfig = config ?? UwbSessionConfig(
+    final sessionConfig = config ?? UwbConfig(
       sessionId: 1234,
       sessionKeyInfo: null,
       channel: 9,
@@ -122,7 +114,6 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     stopUwbSessions();
   }
 
-  @override
   Future<void> stopRanging(String peerAddress) async {
     try {
       await _hostApi.stopRanging(peerAddress);
@@ -131,7 +122,6 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     }
   }
 
-  @override
   Future<void> stopUwbSessions() async {
     try {
       _rangingDevices.clear();
@@ -141,23 +131,36 @@ class Uwb extends UwbPlatform implements UwbFlutterApi {
     }
   }
 
-  @override
   Future<bool> isUwbSupported() async {
     return await _hostApi.isUwbSupported();
   }
 
   // --- Internal Methods (called by OobBle) ---
 
-  @override
-  Future<void> startRanging(Uint8List peerAddress, UwbSessionConfig config) async {
+  void startControllerSession(UwbConfig config) async {
     try {
-      return await _hostApi.startRanging(peerAddress, config);
+      await _hostApi.startControllerSession(config);
     } on PlatformException catch (e) {
       _parsePlatformException(e);
     }
   }
 
-  @override
+  void startAccessorySession(UwbConfig config) async {
+    try {
+      await _hostApi.startAccessorySession(config);
+    } on PlatformException catch (e) {
+      _parsePlatformException(e);
+    }
+  }
+
+  void startPeerSession(Uint8List peerToken, UwbConfig config) async {
+    try {
+      await _hostApi.startPeerSession(peerToken, config);
+    } on PlatformException catch (e) {
+      _parsePlatformException(e);
+    }
+  }
+
   Future<Uint8List> getLocalUwbAddress() async {
     return await _hostApi.getLocalUwbAddress();
   }

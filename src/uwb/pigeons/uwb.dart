@@ -10,9 +10,8 @@ import 'package:pigeon/pigeon.dart';
     kotlinOut:
         'android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt',
     kotlinOptions: KotlinOptions(),
-    swiftOut: 'ios/Classes/Uwb.g.swift', // CORRECTED path
+    swiftOut: 'ios/Classes/Uwb.g.swift',
     swiftOptions: SwiftOptions(),
-    dartPackageName: 'uwb',
   ),
 )
 
@@ -41,6 +40,7 @@ enum DeviceState {
   rejected,
   pending,
   ranging,
+  unknown,
 }
 
 class Direction3D {
@@ -68,26 +68,26 @@ class UwbData {
 
 class UwbDevice {
   final String id;
-  final String name;
+  final String? name;
   final UwbData? uwbData;
-  final DeviceType deviceType;
+  final DeviceType? deviceType;
   final DeviceState? state;
 
   UwbDevice(
       {required this.id,
-      required this.name,
+      this.name,
       this.uwbData,
-      required this.deviceType,
+      this.deviceType,
       this.state});
 }
 
-class UwbSessionConfig {
+class UwbConfig {
   final int sessionId;
   final Uint8List? sessionKeyInfo;
   final int channel;
   final int preambleIndex;
 
-  UwbSessionConfig({
+  UwbConfig({
     required this.sessionId,
     this.sessionKeyInfo,
     required this.channel,
@@ -105,7 +105,9 @@ abstract class UwbHostApi {
 
   bool isUwbSupported();
 
-  void startRanging(Uint8List peerAddress, UwbSessionConfig config);
+  void startControllerSession(UwbConfig config);
+  void startAccessorySession(UwbConfig config);
+  void startPeerSession(Uint8List peerToken, UwbConfig config);
   
   void stopRanging(String peerAddress);
 

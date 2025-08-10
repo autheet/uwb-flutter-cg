@@ -1,99 +1,107 @@
 package net.christiangreiner.uwb
 
 import android.content.Context
-import androidx.core.uwb.UwbClient
-import androidx.core.uwb.UwbDevice
-import androidx.core.uwb.UwbAddress
+import androidx.core.uwb.UwbManager
+import androidx.core.uwb.UwbDevice as PlatformUwbDevice
 import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.RangingSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.cancel
-import net.christiangreiner.uwb.UwbSessionConfig as PigeonUwbConfig
-import net.christiangreiner.uwb.UwbDevice as PigeonUwbDevice
-import net.christiangreiner.uwb.DeviceType
-import net.christiangreiner.uwb.DeviceState
-import net.christiangreiner.uwb.UwbData
-import net.christiangreiner.uwb.Direction3D
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.launch
 
 class UwbConnectionManager(
     private val context: Context,
-    val onRanging: (device: PigeonUwbDevice) -> Unit,
-    val onDisconnected: (device: PigeonUwbDevice) -> Unit
+    private val onDeviceRanged: (UwbDevice) -> Unit,
+    private val onSessionError: (String) -> Unit,
+    private val onSessionStarted: (UwbDevice) -> Unit,
 ) {
-    private val uwbClient: UwbClient by lazy {
-        UwbClient.createClient(context)
-    }
+
+    private var uwbManager: UwbManager? = null
     private val coroutineScope = CoroutineScope(Dispatchers.Main + Job())
-    private val rangingSessions = ConcurrentHashMap<String, RangingSession>()
+    private var rangingSession: RangingSession? = null
 
-    fun getLocalAddress(): ByteArray {
-        return uwbClient.localAddress.address
+    init {
+        uwbManager = UwbManager.createInstance(context)
     }
 
-    fun startRanging(peerAddress: ByteArray, uwbConfig: PigeonUwbConfig) {
-        val peerUwbAddress = UwbAddress(peerAddress)
-        val rangingParams = RangingParameters(
-            uwbConfig.toRangingConfig(),
-            listOf(UwbDevice(peerUwbAddress))
+    fun startControllerSession(config: UwbConfig) {
+        val uwbClient = uwbManager?.getControllingClient(context)
+        // In controller mode, we don't need a peer address to start the session.
+        // The accessory will advertise and the controller will find it.
+        val rangingParameters = RangingParameters(
+            uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
+            sessionId = config.sessionId.toInt(),
+            sessionKeyInfo = config.sessionKeyInfo,
+            subSessionId = null,
+            subSessionKeyInfo = null,
+            complexChannel = null,
+            peerDevices = emptyList(), // No peer needed to start as a controller
+            updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
         )
 
-        val session = uwbClient.rangingSessions(rangingParams)
-        session.onEach {
-            val pigeonDevice = it.device.toPigeonDevice(it.rangingResult)
-            onRanging(pigeonDevice)
-        }.launchIn(coroutineScope)
+        coroutineScope.launch {
+            uwbClient?.let { client ->
+                val session = client.startRanging(rangingParameters)
+                rangingSession = session
+                // onSessionStarted will be called when an accessory is found
+                session
+                    .onEach { rangingResult ->
+                        val pigeonDevice = UwbDataHandler.rangingResultToPigeon(rangingResult)
+                        onDeviceRanged(pigeonDevice)
+                    }
+                    .catch { e -> onSessionError(e.toString()) }
+                    .launchIn(this)
+            }
+        }
+    }
 
-        rangingSessions[peerAddress.toString()] = session
+    fun startAccessorySession(config: UwbConfig) {
+        val uwbClient = uwbManager?.getAccessoryClient(context)
+         val rangingParameters = RangingParameters(
+            uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
+            sessionId = config.sessionId.toInt(),
+            sessionKeyInfo = config.sessionKeyInfo,
+            subSessionId = null,
+            subSessionKeyInfo = null,
+            complexChannel = null,
+            peerDevices = emptyList(), // No peer needed to start as an accessory
+            updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
+        )
+        coroutineScope.launch {
+            uwbClient?.let { client ->
+                val session = client.startRanging(rangingParameters)
+                rangingSession = session
+                // onSessionStarted will be called when a controller starts ranging with us
+                session
+                    .onEach { rangingResult ->
+                        val pigeonDevice = UwbDataHandler.rangingResultToPigeon(rangingResult)
+                        onDeviceRanged(pigeonDevice)
+                    }
+                    .catch { e -> onSessionError(e.toString()) }
+                    .launchIn(this)
+            }
+        }
     }
 
     fun stopRanging(peerAddress: String) {
-        rangingSessions[peerAddress]?.close()
-        rangingSessions.remove(peerAddress)
+        stopAllSessions()
     }
 
-    fun stopAllRanging() {
-        rangingSessions.values.forEach { it.close() }
-        rangingSessions.clear()
-        coroutineScope.cancel()
+    fun stopAllSessions() {
+        rangingSession?.close()
+        rangingSession = null
+        uwbManager = null
     }
 
-    private fun PigeonUwbConfig.toRangingConfig(): RangingParameters.UwbConfig {
-        return RangingParameters.UwbConfig(
-            sessionId,
-            sessionKeyInfo,
-            RangingParameters.UwbConfig.ComplexChannel(channel.toInt(), preambleIndex.toInt()),
-            listOf(), // Add any additional parameters here.
-            RangingParameters.CONFIG_UNICAST_DS_TWR
-        )
+    fun getLocalAddress(): ByteArray? {
+        return uwbManager?.adapterState?.value?.localAddress?.address
     }
 
-    private fun UwbDevice.toPigeonDevice(rangingResult: RangingSession.RangingResult): PigeonUwbDevice {
-        val (distance, azimuth, elevation) = when (rangingResult) {
-            is RangingSession.RangingResult.RangingResultPosition -> Triple(
-                rangingResult.position.distance,
-                rangingResult.position.azimuth,
-                rangingResult.position.elevation
-            )
-            is RangingSession.RangingResult.RangingResultUnsuccessful -> Triple(null, null, null)
-        }
-
-        return PigeonUwbDevice(
-            id = this.address.toString(),
-            name = "Unknown", // You may need a way to resolve the device name.
-            uwbData = UwbData(
-                distance = distance?.value,
-                azimuth = azimuth?.value,
-                elevation = elevation?.value,
-                direction = null,
-                horizontalAngle = null
-            ),
-            deviceType = DeviceType.SMARTPHONE, // This may need to be determined.
-            state = DeviceState.RANGING
-        )
+    fun isUwbSupported(): Boolean {
+        return uwbManager != null
     }
 }

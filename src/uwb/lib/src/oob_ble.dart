@@ -4,7 +4,8 @@ import 'dart:io';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
-import 'package:uwb/flutter_uwb.dart';
+import 'package:uwb/src/uwb.dart';
+import 'package:uwb/src/uwb.g.dart';
 
 class OobBle {
   final Uwb _uwb;
@@ -13,7 +14,7 @@ class OobBle {
   final UUID _serviceUuid;
   final UUID _handshakeCharacteristicUuid;
   final UUID _platformCharacteristicUuid;
-  final UwbSessionConfig _config;
+  final UwbConfig _config;
   final String? _deviceName;
 
   StreamSubscription<BluetoothLowEnergyStateChangedEventArgs>?
@@ -122,9 +123,10 @@ class OobBle {
   Future<void> _startDiscovery() async {
     _discoverySubscription?.cancel();
     _discoverySubscription = _centralManager.discovered.listen((event) {
-      if (!_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
+      final deviceName = event.advertisement.name;
+      if (deviceName != null && deviceName.isNotEmpty && !_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
         _discoveredPeripherals[event.peripheral.uuid.toString()] = event.peripheral;
-        _handlePeripheral(event.peripheral);
+        _handlePeripheral(event.peripheral, deviceName);
       }
     });
 
@@ -163,7 +165,7 @@ class OobBle {
     }
   }
 
-  void _handlePeripheral(Peripheral peripheral) async {
+  void _handlePeripheral(Peripheral peripheral, String peerDeviceName) async {
     try {
       await _centralManager.connect(peripheral);
       await Future.delayed(const Duration(milliseconds: 500));
@@ -179,14 +181,21 @@ class OobBle {
       await _centralManager.setCharacteristicNotifyState(peripheral,
           handshakeCharacteristic, state: true);
 
-      if (platform == 'ios') {
-        // We are Android, peer is iOS. We send our local address (which is NINearbyAccessoryConfiguration compatible)
+      // --- Role Negotiation Logic ---
+      if (Platform.isIOS) {
         final localAddress = await _uwb.getLocalUwbAddress();
-        await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: localAddress, type: GATTCharacteristicWriteType.withResponse);
-      } else {
-        // We are iOS, peer is Android. We send our NIDiscoveryToken.
-        final localAddress = await _uwb.getLocalUwbAddress();
-        await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: localAddress, type: GATTCharacteristicWriteType.withResponse);
+        _uwb.startPeerSession(localAddress, _config);
+
+      } else { // Current device is Android
+        if (platform == 'ios') {
+          _uwb.startAccessorySession(_config);
+        } else {
+          if (_deviceName!.compareTo(peerDeviceName) < 0) {
+            _uwb.startControllerSession(_config);
+          } else {
+            _uwb.startAccessorySession(_config);
+          }
+        }
       }
     } catch (e) {
       debugPrint(
@@ -201,15 +210,6 @@ class OobBle {
   }
 
   void _onNotificationReceived(Uint8List value) {
-    if (value.isNotEmpty) {
-      if (Platform.isIOS) {
-        // On iOS, we receive the NINearbyAccessoryConfiguration here
-        _uwb.startRanging(value, _config);
-      } else {
-        // On Android, we receive the NIDiscoveryToken here
-        // We need to generate the NINearbyAccessoryConfiguration and send it back
-        _uwb.startRanging(value, _config);
-      }
-    }
+    // This is now handled by the native side after session start.
   }
 }
