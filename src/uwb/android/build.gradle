@@ -40,10 +40,9 @@ android {
         jvmTarget = '1.8'
     }
 
+    // Correctly define the source directory for all Kotlin files
     sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
-        // Add the path to the Pigeon-generated files
-        main.java.srcDirs += 'src/main/kotlin/net/christiangreiner/uwb'
+        main.java.srcDirs = ['src/main/kotlin']
     }
 
     defaultConfig {

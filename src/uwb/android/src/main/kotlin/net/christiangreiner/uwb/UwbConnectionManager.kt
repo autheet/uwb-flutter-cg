@@ -1,190 +1,84 @@
 package net.christiangreiner.uwb
 
 import android.content.Context
-import android.util.Log
 import androidx.core.uwb.RangingParameters
-import androidx.core.uwb.RangingResult
-import androidx.core.uwb.UwbAddress
-import androidx.core.uwb.UwbComplexChannel
-import androidx.core.uwb.UwbControleeSessionScope
-import androidx.core.uwb.UwbControllerSessionScope
-import androidx.core.uwb.UwbDevice
 import androidx.core.uwb.UwbManager
-import androidx.core.uwb.rxjava3.controleeSessionScopeSingle
-import androidx.core.uwb.rxjava3.controllerSessionScopeSingle
-import androidx.core.uwb.rxjava3.rangingResultsFlowable
-import io.reactivex.rxjava3.core.Flowable
-import io.reactivex.rxjava3.core.Single
-import io.reactivex.rxjava3.disposables.Disposable
-import io.reactivex.rxjava3.subscribers.DisposableSubscriber
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
-import net.christiangreiner.uwb.oob.UwbConfig
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.cancel
+import androidx.core.uwb.RangingResult
+import androidx.core.uwb.UwbDevice as UwbPeerDevice // Alias to avoid name clash
 
-class UwbConnectionManager(context: Context, private var appCoroutineScope: CoroutineScope) {
-    private var uwbManager: UwbManager
+// Import Pigeon-generated classes
+import net.christiangreiner.uwb.UwbDevice
+import net.christiangreiner.uwb.UwbSessionConfig
+import net.christiangreiner.uwb.UwbData
+import net.christiangreiner.uwb.Direction3D
+import net.christiangreiner.uwb.DeviceType
+import net.christiangreiner.uwb.DeviceState
 
-    private val LOG_TAG: String = "UWB Manager"
+// Listener interface to decouple from Flutter
+interface UwbConnectionListener {
+    fun onRangingResult(device: UwbDevice)
+    fun onRangingError(error: Exception)
+    fun onPeerDisconnected(device: UwbDevice)
+}
 
-    // Callbacks
-    var onUwbRangingStarted: ((String) -> Unit)? = null
+class UwbConnectionManager(
+    private val context: Context,
+    private val uwbManager: UwbManager,
+    private val listener: UwbConnectionListener,
+    private val appCoroutineScope: CoroutineScope
+) {
+    private var rangingScope: CoroutineScope? = null
 
-    // TODO: Each Session should have an own contollerSessionScope
-    private var controllerSessionScopeSingle: Single<UwbControllerSessionScope>? = null
-    private var controleeSessionScopeSingle: Single<UwbControleeSessionScope>? = null
-    private var controleeSessionScope: UwbControleeSessionScope? = null
-    private var controllerSessionScope: UwbControllerSessionScope? = null
+    fun getLocalAddress() = uwbManager.localAddress
 
-    // Mapping Endpoint ID and Ranging Job
-    private var rangingJobs = HashMap<String, Job>()
-
-    // Maps the Endpoint ID and the UWB Session Disposable
-    private var disposableMap = HashMap<String, Disposable?>()
-
-    var localUwbAddress: UwbAddress? = null
-    private var isRanging: Boolean = false
-
-    init {
-        this.uwbManager = UwbManager.createInstance(context)
-    }
-
-    fun isDeviceRanging(deviceId: String) : Boolean {
-        return this.disposableMap.containsKey(deviceId)
-    }
-
-    fun getControllerSessionScope() : UwbControllerSessionScope? {
-        return this.controllerSessionScope
-    }
-
-    fun getControleeSessionScope() : UwbControleeSessionScope? {
-        return this.controleeSessionScope
-    }
-
-    fun isRanging(): Boolean {
-        return this.isRanging
-    }
-
-    fun createControllerSession() {
-        this.controllerSessionScopeSingle = this.uwbManager.controllerSessionScopeSingle()
-        this.controllerSessionScope = controllerSessionScopeSingle!!.blockingGet()
-        this.localUwbAddress = controllerSessionScope!!.localAddress
-    }
-
-    fun createControleeSession() {
-        this.controleeSessionScopeSingle = this.uwbManager.controleeSessionScopeSingle()
-        this.controleeSessionScope = controleeSessionScopeSingle!!.blockingGet()
-        this.localUwbAddress = controleeSessionScope!!.localAddress
-    }
-
-    fun startRanging(endpointId: String, endpointUwbAddress: UwbAddress, config: UwbConfig) : Flow<RangingResult> = channelFlow{
-        if (disposableMap.containsKey(endpointId)) {
-            // throw Exception
-            Log.e(LOG_TAG, "Ranging with $endpointId exists.")
+    fun startRanging(rangingParameters: RangingParameters, config: UwbSessionConfig) {
+        rangingScope = CoroutineScope(appCoroutineScope.coroutineContext)
+        rangingScope?.launch {
+            try {
+                uwbManager.rangingSessions(rangingParameters).collect { rangingResult ->
+                    handleRangingResult(rangingResult, config)
+                }
+            } catch (e: Exception) {
+                listener.onRangingError(e)
+            }
         }
+    }
 
-        val rangingJob = appCoroutineScope.launch {
-            var sessionFlow: Flowable<RangingResult>? = null
-            var rangingParams = RangingParameters(
-                uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
-                sessionId = config.sessionKey,
-                subSessionId = 0,
-                sessionKeyInfo = null,
-                subSessionKeyInfo = null,
-                complexChannel = UwbComplexChannel(9, config.preambleIndex),
-                peerDevices = listOf(UwbDevice(endpointUwbAddress)),
-                updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
-            )
-
-            if (controllerSessionScope != null) {
-                sessionFlow = controllerSessionScope!!.rangingResultsFlowable(rangingParams)
-            } else {
-                Log.e(LOG_TAG, "controllerSessionScope is null!")
-            }
-
-            if (controleeSessionScope != null) {
-                sessionFlow = controleeSessionScope!!.rangingResultsFlowable(rangingParams)
-            } else {
-                Log.e(LOG_TAG, "controleeSessionScope is null!")
-            }
-
-            if (controllerSessionScope == null && controleeSessionScope == null)
-            {
-                // TODO Deal with error
-                Log.e(LOG_TAG, "RANGING FAIL, both controller and controlee are null")
-            }
-
-            Log.i(LOG_TAG, "Start session with config: preambleIndex: ${config.preambleIndex}, Local Address: $localUwbAddress, Peer Address: $endpointUwbAddress, Session Key: ${config.sessionKey}")
-
-            var disposable = sessionFlow!!
-                .delay(1, TimeUnit.SECONDS)
-                .subscribeWith(object : DisposableSubscriber<RangingResult>() {
-                        override fun onStart() {
-                            Log.i(LOG_TAG, "UWB Ranging started")
-                            isRanging = true
-                            request(1)
-                        }
-
-                        override fun onNext(rangingResult: RangingResult) {
-                            appCoroutineScope.launch  {
-                                send(rangingResult)
-                            }
-
-                            when (rangingResult) {
-                                is RangingResult.RangingResultPeerDisconnected -> {
-                                    stopRanging(endpointId)
-                                }
-                            }
-                            request(Long.MAX_VALUE)
-                        }
-
-                        override fun onError(t: Throwable) {
-                            Log.e(LOG_TAG,"Ranging exists already.")
-                            t.printStackTrace()
-                            isRanging = false
-                        }
-
-                        override fun onComplete() {
-                            Log.i(LOG_TAG, "UWB Ranging session completed.")
-                            isRanging = false
-                        }
-                    }
+    private fun handleRangingResult(rangingResult: RangingResult, config: UwbSessionConfig) {
+        when (rangingResult) {
+            is RangingResult.RangingResultPosition -> {
+                val position = rangingResult.position
+                val device = UwbDevice(
+                    id = config.sessionId.toString(), // Use session ID as a unique identifier
+                    name = "", // Name is handled at a higher level
+                    deviceType = DeviceType.accessory,
+                    state = DeviceState.ranging,
+                    uwbData = UwbData(
+                        distance = position.distance?.value?.toDouble(),
+                        azimuth = position.azimuth?.value?.toDouble(),
+                        elevation = position.elevation?.value?.toDouble(),
+                        direction = null // Android does not provide a 3D direction vector
+                    )
                 )
-            disposableMap[endpointId] = disposable
+                listener.onRangingResult(device)
+            }
+            is RangingResult.RangingResultPeerDisconnected -> {
+                val device = UwbDevice(
+                    id = config.sessionId.toString(),
+                    name = "",
+                    deviceType = DeviceType.accessory,
+                    state = DeviceState.disconnected
+                )
+                listener.onPeerDisconnected(device)
+            }
         }
-        rangingJobs[endpointId] = rangingJob
-        onUwbRangingStarted?.invoke(endpointId)
-
-        awaitClose {
-            rangingJob.cancel()
-        }
-    }
-
-    fun stopRanging(endpointId: String) {
-        if (disposableMap.containsKey(endpointId)) {
-            disposableMap[endpointId]?.dispose()
-            disposableMap.remove(endpointId)
-        }
-        if (rangingJobs.containsKey(endpointId)) {
-            rangingJobs[endpointId]?.cancel()
-            rangingJobs.remove(endpointId)
-        }
-        controleeSessionScope = null
-        controllerSessionScope = null
-        controleeSessionScopeSingle = null
-        controllerSessionScopeSingle = null
-        isRanging = false
-        Log.i(LOG_TAG, "UWB Session with $endpointId stopped.")
     }
 
     fun stopRanging() {
-        rangingJobs.forEach { (key, _) ->
-            stopRanging(key)
-        }
-        rangingJobs.clear()
+        rangingScope?.cancel()
+        rangingScope = null
     }
 }
