@@ -1,25 +1,12 @@
 package net.christiangreiner.uwb
 
-import UwbHostApi
-import UwbFlutterApi
-import UwbDevice
-import UwbSessionConfig
-import UwbData
-import uwb.Direction3D
-import DeviceState
-import DeviceType
-import PermissionAction
-
 import android.content.Context
 import androidx.core.uwb.UwbManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-
-
 import java.lang.Exception
-
 
 class UwbPlugin : FlutterPlugin, UwbHostApi, UwbConnectionListener {
     private var uwbManager: UwbManager? = null
@@ -52,8 +39,12 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, UwbConnectionListener {
             uwbConnectionManager = UwbConnectionManager(applicationContext, uwbManager!!, this, coroutineScope)
         }
         coroutineScope.launch {
-            val address = uwbConnectionManager!!.getLocalAddress()
-            callback(Result.success(address.address))
+            try {
+                val address = uwbConnectionManager!!.getLocalAddress()
+                callback(Result.success(address.address))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
         }
     }
 

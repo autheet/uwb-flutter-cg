@@ -1,13 +1,5 @@
 package net.christiangreiner.uwb
 
-// Import Pigeon-generated classes
-import UwbDevice
-import UwbSessionConfig
-import UwbData
-import Direction3D
-import DeviceType
-import DeviceState
-
 import android.content.Context
 import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.UwbManager
@@ -15,11 +7,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
 import androidx.core.uwb.RangingResult
-import androidx-core-uwb.UwbDevice as UwbPeerDevice // Alias to avoid name clash
+import androidx.core.uwb.UwbDevice as UwbPeerDevice // Alias to avoid name clash
 import java.lang.Exception
-
-
-
+import kotlinx.coroutines.flow.collect
 
 // Listener interface to decouple from Flutter
 interface UwbConnectionListener {
@@ -35,14 +25,15 @@ class UwbConnectionManager(
     private val appCoroutineScope: CoroutineScope
 ) {
     private var rangingScope: CoroutineScope? = null
+    private val uwbClient by lazy { uwbManager.createClient(context) }
 
-    fun getLocalAddress() = uwbManager.localAddress
+    fun getLocalAddress() = uwbClient.localAddress
 
     fun startRanging(rangingParameters: RangingParameters, config: UwbSessionConfig) {
         rangingScope = CoroutineScope(appCoroutineScope.coroutineContext)
         rangingScope?.launch {
             try {
-                uwbManager.rangingSessions(rangingParameters).collect { rangingResult ->
+                uwbClient.rangingSessions.collect { rangingResult ->
                     handleRangingResult(rangingResult, config)
                 }
             } catch (e: Exception) {
