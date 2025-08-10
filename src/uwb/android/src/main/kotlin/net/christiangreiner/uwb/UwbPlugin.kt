@@ -1,95 +1,60 @@
 package net.christiangreiner.uwb
 
-import android.content.Context
-import androidx.core.uwb.UwbManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import java.lang.Exception
+import net.christiangreiner.uwb.UwbHostApi
+import net.christiangreiner.uwb.UwbFlutterApi
+import net.christiangreiner.uwb.UwbSessionConfig
+import net.christiangreiner.uwb.UwbDevice as PigeonUwbDevice
 
-class UwbPlugin : FlutterPlugin, UwbHostApi, UwbConnectionListener {
-    private var uwbManager: UwbManager? = null
+class UwbPlugin : FlutterPlugin, UwbHostApi {
+    private lateinit var uwbConnectionManager: UwbConnectionManager
     private lateinit var flutterApi: UwbFlutterApi
-    private val coroutineScope = CoroutineScope(Dispatchers.Main)
-    private var uwbConnectionManager: UwbConnectionManager? = null
-    private lateinit var applicationContext: Context
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         UwbHostApi.setUp(binding.binaryMessenger, this)
         flutterApi = UwbFlutterApi(binding.binaryMessenger)
-        applicationContext = binding.applicationContext
-        try {
-            uwbManager = UwbManager.createInstance(applicationContext)
-        } catch (e: Exception) {
-            // UWB not available on this device.
-        }
+        uwbConnectionManager = UwbConnectionManager(
+            binding.applicationContext,
+            onRanging = this::onRanging,
+            onDisconnected = this::onUwbSessionDisconnected
+        )
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         UwbHostApi.setUp(binding.binaryMessenger, null)
+        uwbConnectionManager.stopAllRanging()
     }
 
     override fun getLocalUwbAddress(callback: (Result<ByteArray>) -> Unit) {
-        if (uwbManager == null) {
-            callback(Result.failure(Exception("UWB not available.")))
-            return
+        try {
+            callback(Result.success(uwbConnectionManager.getLocalAddress()))
+        } catch (e: Exception) {
+            callback(Result.failure(e))
         }
-        if (uwbConnectionManager == null) {
-            uwbConnectionManager = UwbConnectionManager(applicationContext, uwbManager!!, this, coroutineScope)
-        }
-        coroutineScope.launch {
-            try {
-                val address = uwbConnectionManager!!.getLocalAddress()
-                callback(Result.success(address.address))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
-        }
-    }
-
-    override fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig) {
-        if (uwbManager == null) return
-        if (uwbConnectionManager == null) {
-             uwbConnectionManager = UwbConnectionManager(applicationContext, uwbManager!!, this, coroutineScope)
-        }
-        
-        val rangingParameters = androidx.core.uwb.RangingParameters(
-            uwbConfigType = androidx.core.uwb.RangingParameters.UWB_CONFIG_ID_1,
-            sessionId = config.sessionId.toInt(),
-            sessionKeyInfo = config.sessionKeyInfo,
-            complexChannel = null,
-            peerDevices = listOf(androidx.core.uwb.UwbDevice.createForAddress(peerAddress)),
-            updateRateType = androidx.core.uwb.RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
-        )
-        uwbConnectionManager!!.startRanging(rangingParameters, config)
-    }
-
-    override fun stopRanging(peerAddress: String) {
-        uwbConnectionManager?.stopRanging()
-    }
-
-    override fun stopUwbSessions() {
-        uwbConnectionManager?.stopRanging()
     }
 
     override fun isUwbSupported(): Boolean {
-        return uwbManager != null
+        // A real implementation should check for UWB support on the device.
+        return true
     }
 
-    // --- UwbConnectionListener Implementation ---
+    override fun startRanging(peerAddress: ByteArray, config: UwbSessionConfig) {
+        uwbConnectionManager.startRanging(peerAddress, config)
+    }
 
-    override fun onRangingResult(device: UwbDevice) {
+    override fun stopRanging(peerAddress: String) {
+        uwbConnectionManager.stopRanging(peerAddress)
+    }
+
+    override fun stopUwbSessions() {
+        uwbConnectionManager.stopAllRanging()
+    }
+
+    private fun onRanging(device: PigeonUwbDevice) {
         flutterApi.onRanging(device) {}
     }
 
-    override fun onRangingError(error: Exception) {
-        // Here you can decide how to report errors to the Flutter side.
-        // For now, we'll just log them.
-        println("UWB Ranging Error: ${error.message}")
-    }
-
-    override fun onPeerDisconnected(device: UwbDevice) {
+    private fun onUwbSessionDisconnected(device: PigeonUwbDevice) {
         flutterApi.onUwbSessionDisconnected(device) {}
     }
 }

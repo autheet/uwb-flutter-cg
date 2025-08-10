@@ -1,89 +1,99 @@
 package net.christiangreiner.uwb
 
 import android.content.Context
-import androidx.core.uwb.RangingParameters
-import androidx.core.uwb.UwbManager
 import androidx.core.uwb.UwbClient
-import androidx.core.uwb.RangingResult
+import androidx.core.uwb.UwbDevice
+import androidx.core.uwb.UwbAddress
+import androidx.core.uwb.RangingParameters
+import androidx.core.uwb.RangingSession
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
-import java.lang.Exception
-
-// Explicitly import all necessary Pigeon-generated classes
-import net.christiangreiner.uwb.UwbDevice
-import net.christiangreiner.uwb.UwbSessionConfig
-import net.christiangreiner.uwb.UwbData
-import net.christiangreiner.uwb.Direction3D
+import net.christiangreiner.uwb.UwbSessionConfig as PigeonUwbConfig
+import net.christiangreiner.uwb.UwbDevice as PigeonUwbDevice
 import net.christiangreiner.uwb.DeviceType
 import net.christiangreiner.uwb.DeviceState
-
-// Listener interface to decouple from Flutter
-interface UwbConnectionListener {
-    fun onRangingResult(device: UwbDevice)
-    fun onRangingError(error: Exception)
-    fun onPeerDisconnected(device: UwbDevice)
-}
+import net.christiangreiner.uwb.UwbData
+import net.christiangreiner.uwb.Direction3D
+import java.util.concurrent.ConcurrentHashMap
 
 class UwbConnectionManager(
     private val context: Context,
-    private val uwbManager: UwbManager,
-    private val listener: UwbConnectionListener,
-    private val appCoroutineScope: CoroutineScope
+    val onRanging: (device: PigeonUwbDevice) -> Unit,
+    val onDisconnected: (device: PigeonUwbDevice) -> Unit
 ) {
-    private var rangingScope: CoroutineScope? = null
-    // Correctly initialize the UwbClient
-    private val uwbClient: UwbClient by lazy { uwbManager.createClient(context) }
+    private val uwbClient: UwbClient by lazy {
+        UwbClient.createClient(context)
+    }
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + Job())
+    private val rangingSessions = ConcurrentHashMap<String, RangingSession>()
 
-    fun getLocalAddress() = uwbClient.localAddress
-
-    fun startRanging(rangingParameters: RangingParameters, config: UwbSessionConfig) {
-        rangingScope = CoroutineScope(appCoroutineScope.coroutineContext)
-        rangingScope?.launch {
-            try {
-                // Use the correct rangingSessions flow from the UwbClient
-                uwbClient.rangingSessions(rangingParameters).collect { rangingResult ->
-                    handleRangingResult(rangingResult, config)
-                }
-            } catch (e: Exception) {
-                listener.onRangingError(e)
-            }
-        }
+    fun getLocalAddress(): ByteArray {
+        return uwbClient.localAddress.address
     }
 
-    private fun handleRangingResult(rangingResult: RangingResult, config: UwbSessionConfig) {
-        when (rangingResult) {
-            is RangingResult.RangingResultPosition -> {
-                val position = rangingResult.position
-                val device = UwbDevice(
-                    id = config.sessionId.toString(),
-                    name = "",
-                    deviceType = DeviceType.ACCESSORY,
-                    state = DeviceState.RANGING,
-                    uwbData = UwbData(
-                        distance = position.distance?.value?.toDouble(),
-                        azimuth = position.azimuth?.value?.toDouble(),
-                        elevation = position.elevation?.value?.toDouble(),
-                        direction = null
-                    )
-                )
-                listener.onRangingResult(device)
-            }
-            is RangingResult.RangingResultPeerDisconnected -> {
-                val device = UwbDevice(
-                    id = config.sessionId.toString(),
-                    name = "",
-                    deviceType = DeviceType.ACCESSORY,
-                    state = DeviceState.DISCONNECTED
-                )
-                listener.onPeerDisconnected(device)
-            }
-        }
+    fun startRanging(peerAddress: ByteArray, uwbConfig: PigeonUwbConfig) {
+        val peerUwbAddress = UwbAddress(peerAddress)
+        val rangingParams = RangingParameters(
+            uwbConfig.toRangingConfig(),
+            listOf(UwbDevice(peerUwbAddress))
+        )
+
+        val session = uwbClient.rangingSessions(rangingParams)
+        session.onEach {
+            val pigeonDevice = it.device.toPigeonDevice(it.rangingResult)
+            onRanging(pigeonDevice)
+        }.launchIn(coroutineScope)
+
+        rangingSessions[peerAddress.toString()] = session
     }
 
-    fun stopRanging() {
-        rangingScope?.cancel()
-        rangingScope = null
+    fun stopRanging(peerAddress: String) {
+        rangingSessions[peerAddress]?.close()
+        rangingSessions.remove(peerAddress)
+    }
+
+    fun stopAllRanging() {
+        rangingSessions.values.forEach { it.close() }
+        rangingSessions.clear()
+        coroutineScope.cancel()
+    }
+
+    private fun PigeonUwbConfig.toRangingConfig(): RangingParameters.UwbConfig {
+        return RangingParameters.UwbConfig(
+            sessionId,
+            sessionKeyInfo,
+            RangingParameters.UwbConfig.ComplexChannel(channel.toInt(), preambleIndex.toInt()),
+            listOf(), // Add any additional parameters here.
+            RangingParameters.CONFIG_UNICAST_DS_TWR
+        )
+    }
+
+    private fun UwbDevice.toPigeonDevice(rangingResult: RangingSession.RangingResult): PigeonUwbDevice {
+        val (distance, azimuth, elevation) = when (rangingResult) {
+            is RangingSession.RangingResult.RangingResultPosition -> Triple(
+                rangingResult.position.distance,
+                rangingResult.position.azimuth,
+                rangingResult.position.elevation
+            )
+            is RangingSession.RangingResult.RangingResultUnsuccessful -> Triple(null, null, null)
+        }
+
+        return PigeonUwbDevice(
+            id = this.address.toString(),
+            name = "Unknown", // You may need a way to resolve the device name.
+            uwbData = UwbData(
+                distance = distance?.value,
+                azimuth = azimuth?.value,
+                elevation = elevation?.value,
+                direction = null,
+                horizontalAngle = null
+            ),
+            deviceType = DeviceType.SMARTPHONE, // This may need to be determined.
+            state = DeviceState.RANGING
+        )
     }
 }
