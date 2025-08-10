@@ -1,20 +1,20 @@
+
 group 'net.christiangreiner.uwb'
-version '2.0.0-SNAPSHOT'
+version '1.0'
 
 buildscript {
-    ext.kotlin_version = '1.9.0'
+    ext.kotlin_version = '1.8.22'
     repositories {
         google()
         mavenCentral()
     }
-
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.3.0'
+        classpath 'com.android.tools.build:gradle:7.4.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
-allprojects {
+rootProject.allprojects {
     repositories {
         google()
         mavenCentral()
@@ -25,12 +25,8 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    if (project.android.hasProperty("namespace")) {
-        namespace 'net.christiangreiner.uwb'
-    }
-
-    ndkVersion "25.1.8937393"
-    compileSdk 34
+    namespace "net.christiangreiner.uwb"
+    compileSdkVersion 34
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -43,31 +39,16 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
-        test.java.srcDirs += 'src/test/kotlin'
     }
 
     defaultConfig {
-        minSdkVersion 34
+        minSdkVersion 21
     }
+}
 
-    dependencies {
-        testImplementation 'org.jetbrains.kotlin:kotlin-test'
-        testImplementation 'org.mockito:mockito-core:5.0.0'
-        implementation("androidx.core.uwb:uwb-rxjava3:1.0.0-alpha08")
-        implementation("androidx.core.uwb:uwb:1.0.0-alpha08")
-        implementation("com.google.android.gms:play-services-nearby:19.0.0")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.9")
-    }
-
-    testOptions {
-        unitTests.all {
-            useJUnitPlatform()
-
-            testLogging {
-                events "passed", "skipped", "failed", "standardOut", "standardError"
-                outputs.upToDateWhen {false}
-                showStandardStreams = true
-            }
-        }
-    }
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "androidx.core:core-uwb:1.0.0-beta01"
 }
