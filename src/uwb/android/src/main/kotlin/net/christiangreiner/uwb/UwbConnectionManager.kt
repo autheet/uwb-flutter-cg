@@ -3,21 +3,13 @@ package net.christiangreiner.uwb
 import android.content.Context
 import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.UwbManager
+import androidx.core.uwb.UwbClient
+import androidx.core.uwb.RangingResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
-import androidx.core.uwb.RangingResult
-import androidx.core.uwb.UwbClient
-import java.lang.Exception
 import kotlinx.coroutines.flow.collect
-
-// Correctly importing the Pigeon-generated classes
-import net.christiangreiner.uwb.UwbDevice
-import net.christiangreiner.uwb.UwbSessionConfig
-import net.christiangreiner.uwb.UwbData
-import net.christiangreiner.uwb.Direction3D
-import net.christiangreiner.uwb.DeviceType
-import net.christiangreiner.uwb.DeviceState
+import java.lang.Exception
 
 // Listener interface to decouple from Flutter
 interface UwbConnectionListener {
@@ -55,15 +47,15 @@ class UwbConnectionManager(
             is RangingResult.RangingResultPosition -> {
                 val position = rangingResult.position
                 val device = UwbDevice(
-                    id = config.sessionId.toString(), // Use session ID as a unique identifier
-                    name = "", // Name is handled at a higher level
-                    deviceType = DeviceType.accessory,
-                    state = DeviceState.ranging,
+                    id = config.sessionId.toString(),
+                    name = "",
+                    deviceType = DeviceType.ACCESSORY,
+                    state = DeviceState.RANGING,
                     uwbData = UwbData(
                         distance = position.distance?.value?.toDouble(),
                         azimuth = position.azimuth?.value?.toDouble(),
                         elevation = position.elevation?.value?.toDouble(),
-                        direction = null // Android does not provide a 3D direction vector
+                        direction = null
                     )
                 )
                 listener.onRangingResult(device)
@@ -72,8 +64,8 @@ class UwbConnectionManager(
                 val device = UwbDevice(
                     id = config.sessionId.toString(),
                     name = "",
-                    deviceType = DeviceType.accessory,
-                    state = DeviceState.disconnected
+                    deviceType = DeviceType.ACCESSORY,
+                    state = DeviceState.DISCONNECTED
                 )
                 listener.onPeerDisconnected(device)
             }

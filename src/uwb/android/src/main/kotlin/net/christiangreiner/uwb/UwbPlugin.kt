@@ -8,13 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.lang.Exception
 
-// Correctly importing the Pigeon-generated classes
-import net.christiangreiner.uwb.UwbHostApi
-import net.christiangreiner.uwb.UwbFlutterApi
-import net.christiangreiner.uwb.UwbDevice
-import net.christiangreiner.uwb.UwbSessionConfig
-import net.christiangreiner.uwb.PermissionAction
-
 class UwbPlugin : FlutterPlugin, UwbHostApi, UwbConnectionListener {
     private var uwbManager: UwbManager? = null
     private lateinit var flutterApi: UwbFlutterApi
