@@ -29,7 +29,6 @@ android {
         namespace 'net.christiangreiner.uwb'
     }
 
-    ndkVersion "25.1.8937393"
     compileSdk 34
 
     compileOptions {
@@ -43,11 +42,12 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
-        test.java.srcDirs += 'src/test/kotlin'
+        // Add the path to the Pigeon-generated files
+        main.java.srcDirs += 'src/main/kotlin/net/christiangreiner/uwb'
     }
 
     defaultConfig {
-        minSdkVersion 34
+        minSdkVersion 31
     }
 
     dependencies {
