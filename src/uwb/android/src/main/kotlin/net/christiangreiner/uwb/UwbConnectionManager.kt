@@ -1,107 +1,54 @@
 package net.christiangreiner.uwb
 
-import android.content.Context
-import androidx.core.uwb.UwbManager
-import androidx.core.uwb.UwbDevice as PlatformUwbDevice
-import androidx.core.uwb.RangingParameters
-import androidx.core.uwb.RangingSession
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.launch
+import android.annotation.SuppressLint
+import androidx.core.uwb.RangingPosition
+import androidx.core.uwb.UwbClient
+import androidx.core.uwb.UwbDevice
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
+import io.reactivex.rxjava3.disposables.Disposable
 
+@SuppressLint("CheckResult")
 class UwbConnectionManager(
-    private val context: Context,
-    private val onDeviceRanged: (UwbDevice) -> Unit,
-    private val onSessionError: (String) -> Unit,
-    private val onSessionStarted: (UwbDevice) -> Unit,
+    private val uwbClient: UwbClient,
+    private val onRangingResult: (UwbRangingDevice) -> Unit,
+    private val onRangingError: (String) -> Unit,
 ) {
+    private var rangingDisposable: Disposable? = null
 
-    private var uwbManager: UwbManager? = null
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + Job())
-    private var rangingSession: RangingSession? = null
-
-    init {
-        uwbManager = UwbManager.createInstance(context)
-    }
-
-    fun startControllerSession(config: UwbConfig) {
-        val uwbClient = uwbManager?.getControllingClient(context)
-        // In controller mode, we don't need a peer address to start the session.
-        // The accessory will advertise and the controller will find it.
-        val rangingParameters = RangingParameters(
-            uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
-            sessionId = config.sessionId.toInt(),
-            sessionKeyInfo = config.sessionKeyInfo,
-            subSessionId = null,
-            subSessionKeyInfo = null,
-            complexChannel = null,
-            peerDevices = emptyList(), // No peer needed to start as a controller
-            updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
-        )
-
-        coroutineScope.launch {
-            uwbClient?.let { client ->
-                val session = client.startRanging(rangingParameters)
-                rangingSession = session
-                // onSessionStarted will be called when an accessory is found
-                session
-                    .onEach { rangingResult ->
-                        val pigeonDevice = UwbDataHandler.rangingResultToPigeon(rangingResult)
-                        onDeviceRanged(pigeonDevice)
-                    }
-                    .catch { e -> onSessionError(e.toString()) }
-                    .launchIn(this)
-            }
+    fun startRanging(peerEndpoint: ByteArray) {
+        if (rangingDisposable != null) {
+            return
         }
+
+        val peer = UwbDevice(peerEndpoint)
+        val rangingSpec = uwbClient.prepareSession(listOf(peer))
+
+        rangingDisposable =
+            uwbClient
+                .ranging(rangingSpec)
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(
+                    { rangingResult ->
+                        when (rangingResult) {
+                            is RangingPosition -> {
+                                onRangingResult(UwbDataHandler.rangingPositionToDevice(rangingResult))
+                            }
+                            is RangingLoss -> {
+                                onRangingResult(UwbDataHandler.rangingLossToDevice(rangingResult))
+                            }
+                        }
+                    },
+                    { throwable -> onRangingError(throwable.toString()) }
+                )
     }
 
-    fun startAccessorySession(config: UwbConfig) {
-        val uwbClient = uwbManager?.getAccessoryClient(context)
-         val rangingParameters = RangingParameters(
-            uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
-            sessionId = config.sessionId.toInt(),
-            sessionKeyInfo = config.sessionKeyInfo,
-            subSessionId = null,
-            subSessionKeyInfo = null,
-            complexChannel = null,
-            peerDevices = emptyList(), // No peer needed to start as an accessory
-            updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
-        )
-        coroutineScope.launch {
-            uwbClient?.let { client ->
-                val session = client.startRanging(rangingParameters)
-                rangingSession = session
-                // onSessionStarted will be called when a controller starts ranging with us
-                session
-                    .onEach { rangingResult ->
-                        val pigeonDevice = UwbDataHandler.rangingResultToPigeon(rangingResult)
-                        onDeviceRanged(pigeonDevice)
-                    }
-                    .catch { e -> onSessionError(e.toString()) }
-                    .launchIn(this)
-            }
-        }
+    fun stopRanging() {
+        rangingDisposable?.dispose()
+        rangingDisposable = null
     }
 
-    fun stopRanging(peerAddress: String) {
-        stopAllSessions()
-    }
-
-    fun stopAllSessions() {
-        rangingSession?.close()
-        rangingSession = null
-        uwbManager = null
-    }
-
-    fun getLocalAddress(): ByteArray? {
-        return uwbManager?.adapterState?.value?.localAddress?.address
-    }
-
-    fun isUwbSupported(): Boolean {
-        return uwbManager != null
+    fun closeSession() {
+        stopRanging()
+        uwbClient.close()
     }
 }

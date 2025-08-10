@@ -5,37 +5,36 @@ import 'dart:io';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uwb/src/uwb.dart';
-import 'package:uwb/src/uwb.g.dart';
 
 class OobBle {
-  final Uwb _uwb;
+  final FlutterUwb _uwb = FlutterUwb();
   final CentralManager _centralManager;
   final PeripheralManager _peripheralManager;
   final UUID _serviceUuid;
   final UUID _handshakeCharacteristicUuid;
   final UUID _platformCharacteristicUuid;
-  final UwbConfig _config;
   final String? _deviceName;
 
   StreamSubscription<BluetoothLowEnergyStateChangedEventArgs>?
       _centralStateSubscription;
   StreamSubscription<DiscoveredEventArgs>? _discoverySubscription;
-  StreamSubscription<GATTCharacteristicNotifiedEventArgs>?
-      _notificationSubscription;
 
   final Map<String, Peripheral> _discoveredPeripherals = {};
   bool _isActive = false;
 
-  OobBle(
-    this._uwb,
-    this._centralManager,
-    this._peripheralManager,
-    this._serviceUuid,
-    this._handshakeCharacteristicUuid,
-    this._platformCharacteristicUuid,
-    this._config, {
+  OobBle({
+    required String serviceUuid,
+    required String handshakeCharacteristicUuid,
+    required String platformCharacteristicUuid,
     String? deviceName,
-  }) : _deviceName = deviceName;
+  })  : _centralManager = CentralManager(),
+        _peripheralManager = PeripheralManager(),
+        _serviceUuid = UUID.fromString(serviceUuid),
+        _handshakeCharacteristicUuid =
+            UUID.fromString(handshakeCharacteristicUuid),
+        _platformCharacteristicUuid =
+            UUID.fromString(platformCharacteristicUuid),
+        _deviceName = deviceName;
 
   Future<void> start() async {
     _listenToStateChanges();
@@ -47,8 +46,8 @@ class OobBle {
     _stopAdvertising();
     _stopDiscovery();
     _centralStateSubscription?.cancel();
-    _notificationSubscription?.cancel();
     _discoveredPeripherals.clear();
+    _uwb.dispose();
   }
 
   void _listenToStateChanges() {
@@ -124,16 +123,13 @@ class OobBle {
     _discoverySubscription?.cancel();
     _discoverySubscription = _centralManager.discovered.listen((event) {
       final deviceName = event.advertisement.name;
-      if (deviceName != null && deviceName.isNotEmpty && !_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
-        _discoveredPeripherals[event.peripheral.uuid.toString()] = event.peripheral;
+      if (deviceName != null &&
+          deviceName.isNotEmpty &&
+          !_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
+        _discoveredPeripherals[event.peripheral.uuid.toString()] =
+            event.peripheral;
         _handlePeripheral(event.peripheral, deviceName);
       }
-    });
-
-    _notificationSubscription?.cancel();
-    _notificationSubscription =
-        _centralManager.characteristicNotified.listen((event) {
-      _onNotificationReceived(event.value);
     });
 
     await _centralManager.startDiscovery(
@@ -146,25 +142,6 @@ class OobBle {
     _discoverySubscription?.cancel();
   }
 
-  Future<void> sendShareableConfig({required String peerId, required Uint8List data}) async {
-    final peripheral = _discoveredPeripherals[peerId];
-    if (peripheral == null) {
-      debugPrint("Error: Could not find peripheral with ID $peerId to send shareable config.");
-      return;
-    }
-
-    try {
-      final services = await _centralManager.discoverGATT(peripheral);
-      final service = services.firstWhere((s) => s.uuid == _serviceUuid);
-      final characteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
-      
-      await _centralManager.writeCharacteristic(peripheral, characteristic, value: data, type: GATTCharacteristicWriteType.withResponse);
-      debugPrint("Successfully sent shareable config to peer $peerId");
-    } catch (e) {
-      debugPrint("Error sending shareable config to peer $peerId: $e");
-    }
-  }
-
   void _handlePeripheral(Peripheral peripheral, String peerDeviceName) async {
     try {
       await _centralManager.connect(peripheral);
@@ -172,30 +149,22 @@ class OobBle {
       final services = await _centralManager.discoverGATT(peripheral);
 
       final gattService = services.firstWhere((s) => s.uuid == _serviceUuid);
-      final handshakeCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
-      final platformCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _platformCharacteristicUuid);
+      final handshakeCharacteristic = gattService.characteristics
+          .firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
 
-      final platformBytes = await _centralManager.readCharacteristic(peripheral, platformCharacteristic);
-      final platform = String.fromCharCodes(platformBytes);
-
-      await _centralManager.setCharacteristicNotifyState(peripheral,
-          handshakeCharacteristic, state: true);
-
-      // --- Role Negotiation Logic ---
       if (Platform.isIOS) {
-        final localAddress = await _uwb.getLocalUwbAddress();
-        _uwb.startPeerSession(localAddress, _config);
-
+        final localEndpoint = await _uwb.getLocalEndpoint();
+        await _centralManager.writeCharacteristic(
+          peripheral,
+          handshakeCharacteristic,
+          value: localEndpoint,
+          type: GATTCharacteristicWriteType.withResponse,
+        );
       } else { // Current device is Android
-        if (platform == 'ios') {
-          _uwb.startAccessorySession(_config);
-        } else {
-          if (_deviceName!.compareTo(peerDeviceName) < 0) {
-            _uwb.startControllerSession(_config);
-          } else {
-            _uwb.startAccessorySession(_config);
-          }
-        }
+        final peerEndpoint = await _centralManager.readCharacteristic(
+            peripheral, handshakeCharacteristic);
+        final isController = _deviceName!.compareTo(peerDeviceName) < 0;
+        await _uwb.startRanging(peerEndpoint, isController: isController);
       }
     } catch (e) {
       debugPrint(
@@ -207,9 +176,5 @@ class OobBle {
         debugPrint("Error during disconnect: $disconnectError");
       }
     }
-  }
-
-  void _onNotificationReceived(Uint8List value) {
-    // This is now handled by the native side after session start.
   }
 }

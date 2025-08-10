@@ -6,90 +6,101 @@ import os
 // This extension of Error is required to do use FlutterError in any Swift code.
 extension FlutterError: Error {}
 
-public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionManagerDelegate {
+public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
     
     // MARK: - Properties
     
     static var flutterApi: UwbFlutterApi?
-    private var niManager: NISessionManager
+    private var niSession: NISession?
     private let logger = os.Logger(subsystem: "com.autheet.uwb", category: "UwbPlugin")
     
-    // MARK: - Initializer
-    
-    override init() {
-        self.niManager = NISessionManager()
-        super.init()
-        self.niManager.delegate = self
-    }
-     
     // MARK: - UwbHostApi Implementation
     
-    func getLocalUwbAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        // This is not used on iOS for direct ranging, as discovery tokens are exchanged out-of-band.
-        // We return empty data as a placeholder.
-        completion(.success(FlutterStandardTypedData(bytes: Data())))
+    func isSupported(completion: @escaping (Result<Bool, Error>) -> Void) {
+        completion(.success(NISession.isSupported))
     }
     
-    func startRanging(peerAddress: FlutterStandardTypedData, config: UwbSessionConfig) throws {
-        let peerId = String(config.sessionId)
+    func getLocalEndpoint(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+        let session = NISession()
+        session.delegate = self
+        self.niSession = session
         
-        var niConfig: NIConfiguration
-
-        if !peerAddress.data.isEmpty {
-            logger.log("Creating NINearbyAccessoryConfiguration with provided data.")
-            niConfig = try NINearbyAccessoryConfiguration(data: peerAddress.data)
-        } else {
-            guard let tokenData = config.sessionKeyInfo?.data,
-                  let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
-                throw FlutterError(code: "UWB_ERROR", message: "Missing or invalid discovery token for peer configuration.", details: nil)
-            }
-            logger.log("Creating NINearbyPeerConfiguration with discovery token.")
-            niConfig = NINearbyPeerConfiguration(peerToken: discoveryToken)
+        guard let token = session.discoveryToken else {
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to get discovery token.", details: nil)))
+            return
         }
+        
+        do {
+            let data = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
+            completion(.success(FlutterStandardTypedData(bytes: data)))
+        } catch {
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to archive discovery token.", details: error.localizedDescription)))
+        }
+    }
+    
+    func startRanging(peerEndpoint: FlutterStandardTypedData, isController: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+        do {
+            guard let token = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: peerEndpoint.data) else {
+                throw FlutterError(code: "UWB_ERROR", message: "Invalid peer endpoint data.", details: nil)
+            }
+            let config = NINearbyPeerConfiguration(peerToken: token)
+            niSession?.run(config)
+            completion(.success(()))
+        } catch {
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to start ranging.", details: error.localizedDescription)))
+        }
+    }
+    
+    func stopRanging(completion: @escaping (Result<Void, Error>) -> Void) {
+        niSession?.invalidate()
+        niSession = nil
+        completion(.success(()))
+    }
+    
+    func closeSession(completion: @escaping (Result<Void, Error>) -> Void) {
+        niSession?.invalidate()
+        niSession = nil
+        completion(.success(()))
+    }
+    
+    // MARK: - NISessionDelegate Implementation
+    
+    public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
+        guard let nearbyObject = nearbyObjects.first else { return }
+        
+        let rangingData = UwbRangingData(
+            distance: nearbyObject.distance,
+            azimuth: nearbyObject.direction?.x,
+            elevation: nearbyObject.direction?.y
+        )
+        let device = UwbRangingDevice(
+            id: nearbyObject.discoveryToken.description,
+            state: .ranging,
+            data: rangingData
+        )
+        UwbPlugin.flutterApi?.onRangingResult(device: device) { _ in }
+    }
+    
+    public func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
+        guard let nearbyObject = nearbyObjects.first else { return }
+        
+        let device = UwbRangingDevice(
+            id: nearbyObject.discoveryToken.description,
+            state: .lost,
+            data: nil
+        )
+        UwbPlugin.flutterApi?.onRangingResult(device: device) { _ in }
+    }
+    
+    public func session(_ session: NISession, didInvalidateWith error: Error) {
+        UwbPlugin.flutterApi?.onRangingError(error: error.localizedDescription) { _ in }
+    }
 
-        // isCameraAssistanceEnabled should be disabled by default, as requested.
-        // No code here to enable it.
-
-        niManager.startRanging(peerId: peerId, configuration: niConfig)
-    }
-    
-    func stopRanging(peerAddress: String) throws {
-        niManager.stopRanging(peerId: peerAddress)
-    }
-    
-    func stopUwbSessions() throws {
-        niManager.invalidateAllSessions()
-    }
-       
-    func isUwbSupported() throws -> Bool {
-        return NISession.isSupported
-    }
-
-    // MARK: - NISessionManagerDelegate Implementation
-    
-    func sessionManager(didGenerateShareableConfigurationData data: Data, for peerId: String) {
-        let flutterData = FlutterStandardTypedData(bytes: data)
-        // Call the newly generated Pigeon method to send data back to Flutter
-        UwbPlugin.flutterApi?.onShareableConfigurationData(data: flutterData, peerId: peerId) { _ in }
-    }
-    
-    func sessionManager(didUpdate rangingData: UwbData, for peerId: String) {
-        let device = UwbDevice(id: peerId, name: "", uwbData: rangingData, deviceType: .accessory, state: .ranging)
-        UwbPlugin.flutterApi?.onRanging(device: device) { _ in }
-    }
-    
-    func sessionManager(didStart: Bool, for peerId: String) {
-        let device = UwbDevice(id: peerId, name: "", uwbData: nil, deviceType: .accessory, state: .ranging)
-        UwbPlugin.flutterApi?.onUwbSessionStarted(device: device) { _ in }
-    }
-    
-    func sessionManager(didStop: Bool, for peerId: String) {
-        let device = UwbDevice(id: peerId, name: "", uwbData: nil, deviceType: .accessory, state: .disconnected)
-        UwbPlugin.flutterApi?.onUwbSessionDisconnected(device: device) { _ in }
-    }
-
-    func sessionManager(permissionRequired action: PermissionAction) {
-        UwbPlugin.flutterApi?.onPermissionRequired(action: action) { _ in }
+    public func session(_ session: NISession, didGenerateShareableConfigurationData data: Data, for object: NINearbyObject) {
+         // This is not directly used in our new architecture, as the token exchange happens before ranging starts.
+         // However, we can use this to send updated configuration data if needed.
+        let peerId = object.discoveryToken.description
+        UwbPlugin.flutterApi?.onShareableConfigurationData(data: FlutterStandardTypedData(bytes: data), peerId: peerId) { _ in }
     }
     
     // MARK: - FlutterPlugin Registration
@@ -97,7 +108,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionManagerDel
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger = registrar.messenger()
         let api: UwbHostApi = UwbPlugin()
-        UwbHostApiSetup.setUp(binaryMessenger: messenger, api: api)
+        UwbHostApi.setUp(binaryMessenger: messenger, api: api)
         
         flutterApi = UwbFlutterApi(binaryMessenger: messenger)
     }

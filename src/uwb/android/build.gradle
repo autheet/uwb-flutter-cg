@@ -50,6 +50,8 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation 'io.reactivex.rxjava3:rxandroid:3.0.2'
+
 
     // Use the latest UWB libraries from AndroidX Jetpack.
     // 'uwb' provides the core UWB functionality using Kotlin Coroutines.

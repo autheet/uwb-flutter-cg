@@ -1,11 +1,13 @@
 package net.christiangreiner.uwb
 
 import android.content.Context
+import androidx.core.uwb.UwbClient
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 
 class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private var appContext: Context? = null
+    private var uwbClient: UwbClient? = null
     private var uwbConnectionManager: UwbConnectionManager? = null
     private var flutterApi: UwbFlutterApi? = null
 
@@ -21,56 +23,62 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         flutterApi = null
     }
 
-    private fun getManager(): UwbConnectionManager {
+    private fun getManager(uwbClient: UwbClient): UwbConnectionManager {
         if (uwbConnectionManager == null) {
             uwbConnectionManager = UwbConnectionManager(
-                appContext!!,
-                onDeviceRanged = { device ->
-                    flutterApi?.onRanging(device) {}
+                uwbClient,
+                onRangingResult = { device ->
+                    flutterApi?.onRangingResult(device) {}
                 },
-                onSessionError = { error ->
-                    // Handle error, maybe send to Flutter
-                },
-                onSessionStarted = { device ->
-                    flutterApi?.onUwbSessionStarted(device) {}
+                onRangingError = { error ->
+                    flutterApi?.onRangingError(error) {}
                 }
             )
         }
         return uwbConnectionManager!!
     }
 
-    override fun getLocalUwbAddress(result: UwbHostApi.Result<ByteArray>?) {
-        val address = getManager().getLocalAddress()
-        if (address != null) {
-            result?.success(address)
-        } else {
-            result?.error(Exception("UWB address not available"))
+    override fun isSupported(result: (Result<Boolean>) -> Unit) {
+        result(Result.success(appContext != null && UwbClient.isUwbSupported(appContext!!)))
+    }
+
+    override fun getLocalEndpoint(result: (Result<ByteArray>) -> Unit) {
+        if (uwbClient == null) {
+            result(Result.failure(Exception("UWB client not initialized.")))
+            return
         }
+        result(Result.success(uwbClient!!.localAddress))
     }
 
-    override fun isUwbSupported(result: UwbHostApi.Result<Boolean>?) {
-        result?.success(getManager().isUwbSupported())
+    override fun startRanging(peerEndpoint: ByteArray, isController: Boolean, result: (Result<Unit>) -> Unit) {
+        if (appContext == null) {
+            result(Result.failure(Exception("App context not available.")))
+            return
+        }
+        uwbClient = if (isController) {
+            UwbClient.getControllingClient(appContext!!)
+        } else {
+            UwbClient.getAccessoryClient(appContext!!)
+        }
+        getManager(uwbClient!!).startRanging(peerEndpoint)
+        result(Result.success(Unit))
     }
 
-    override fun startControllerSession(config: UwbConfig) {
-        getManager().startControllerSession(config)
+    override fun stopRanging(result: (Result<Unit>) -> Unit) {
+        if (uwbConnectionManager == null) {
+            result(Result.failure(Exception("Ranging not started.")))
+            return
+        }
+        uwbConnectionManager!!.stopRanging()
+        result(Result.success(Unit))
     }
 
-    override fun startAccessorySession(config: UwbConfig) {
-        getManager().startAccessorySession(config)
-    }
-    
-    override fun startPeerSession(peerToken: ByteArray, config: UwbConfig) {
-        // Not implemented on Android, this is an iOS-specific method.
-        // Android uses the controller/accessory model.
-    }
-
-    override fun stopRanging(peerAddress: String) {
-        getManager().stopRanging(peerAddress)
-    }
-
-    override fun stopUwbSessions() {
-        getManager().stopAllSessions()
-        uwbConnectionManager = null
+    override fun closeSession(result: (Result<Unit>) -> Unit) {
+        if (uwbConnectionManager != null) {
+            uwbConnectionManager!!.closeSession()
+            uwbConnectionManager = null
+        }
+        uwbClient = null
+        result(Result.success(Unit))
     }
 }
