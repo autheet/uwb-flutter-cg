@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
@@ -9,8 +11,8 @@ class OobBle {
   final CentralManager _centralManager;
   final PeripheralManager _peripheralManager;
   final UUID _serviceUuid;
-  final UUID _rxCharacteristicUuid;
-  final UUID _txCharacteristicUuid;
+  final UUID _handshakeCharacteristicUuid;
+  final UUID _platformCharacteristicUuid;
   final UwbSessionConfig _config;
   final String? _deviceName;
 
@@ -28,8 +30,8 @@ class OobBle {
     this._centralManager,
     this._peripheralManager,
     this._serviceUuid,
-    this._rxCharacteristicUuid,
-    this._txCharacteristicUuid,
+    this._handshakeCharacteristicUuid,
+    this._platformCharacteristicUuid,
     this._config, {
     String? deviceName,
   }) : _deviceName = deviceName;
@@ -74,6 +76,37 @@ class OobBle {
   }
 
   Future<void> _startAdvertising() async {
+    final platformCharacteristic = GATTCharacteristic.immutable(
+      uuid: _platformCharacteristicUuid,
+      value: Uint8List.fromList(utf8.encode(Platform.operatingSystem)),
+      descriptors: [],
+    );
+
+    final handshakeCharacteristic = GATTCharacteristic.mutable(
+      uuid: _handshakeCharacteristicUuid,
+      properties: [
+        GATTCharacteristicProperty.write,
+        GATTCharacteristicProperty.notify,
+      ],
+      permissions: [
+        GATTCharacteristicPermission.read,
+        GATTCharacteristicPermission.write,
+      ],
+      descriptors: [],
+    );
+
+    await _peripheralManager.addService(
+      GATTService(
+        uuid: _serviceUuid,
+        isPrimary: true,
+        includedServices: [],
+        characteristics: [
+          platformCharacteristic,
+          handshakeCharacteristic,
+        ],
+      ),
+    );
+
     await _peripheralManager.startAdvertising(
       Advertisement(
         name: _deviceName,
@@ -121,7 +154,7 @@ class OobBle {
     try {
       final services = await _centralManager.discoverGATT(peripheral);
       final service = services.firstWhere((s) => s.uuid == _serviceUuid);
-      final characteristic = service.characteristics.firstWhere((c) => c.uuid == _txCharacteristicUuid);
+      final characteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
       
       await _centralManager.writeCharacteristic(peripheral, characteristic, value: data, type: GATTCharacteristicWriteType.withResponse);
       debugPrint("Successfully sent shareable config to peer $peerId");
@@ -137,17 +170,24 @@ class OobBle {
       final services = await _centralManager.discoverGATT(peripheral);
 
       final gattService = services.firstWhere((s) => s.uuid == _serviceUuid);
-      final rxCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _rxCharacteristicUuid);
-      final txCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _txCharacteristicUuid);
+      final handshakeCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
+      final platformCharacteristic = gattService.characteristics.firstWhere((c) => c.uuid == _platformCharacteristicUuid);
+
+      final platformBytes = await _centralManager.readCharacteristic(peripheral, platformCharacteristic);
+      final platform = String.fromCharCodes(platformBytes);
 
       await _centralManager.setCharacteristicNotifyState(peripheral,
-          txCharacteristic, state: true);
+          handshakeCharacteristic, state: true);
 
-      final localAddress = await _uwb.getLocalUwbAddress();
-      await _centralManager.writeCharacteristic(
-          peripheral, rxCharacteristic,
-          value: localAddress,
-          type: GATTCharacteristicWriteType.withResponse);
+      if (platform == 'ios') {
+        // We are Android, peer is iOS. We send our local address (which is NINearbyAccessoryConfiguration compatible)
+        final localAddress = await _uwb.getLocalUwbAddress();
+        await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: localAddress, type: GATTCharacteristicWriteType.withResponse);
+      } else {
+        // We are iOS, peer is Android. We send our NIDiscoveryToken.
+        final localAddress = await _uwb.getLocalUwbAddress();
+        await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: localAddress, type: GATTCharacteristicWriteType.withResponse);
+      }
     } catch (e) {
       debugPrint(
           "Error handling peripheral: $e. Disconnecting and restarting discovery.");
@@ -162,7 +202,14 @@ class OobBle {
 
   void _onNotificationReceived(Uint8List value) {
     if (value.isNotEmpty) {
-      _uwb.startRanging(value, _config);
+      if (Platform.isIOS) {
+        // On iOS, we receive the NINearbyAccessoryConfiguration here
+        _uwb.startRanging(value, _config);
+      } else {
+        // On Android, we receive the NIDiscoveryToken here
+        // We need to generate the NINearbyAccessoryConfiguration and send it back
+        _uwb.startRanging(value, _config);
+      }
     }
   }
 }
