@@ -8,7 +8,6 @@ enum NISessionManagerError: Error {
     case invalidConfiguration
 }
 
-
 // MARK: - NISessionManagerDelegate Protocol
 protocol NISessionManagerDelegate: AnyObject {
     func sessionManager(didGenerateShareableConfigurationData data: Data, for peerId: String)
@@ -103,6 +102,7 @@ class NISessionManager: NSObject, NISessionDelegate {
             elevation = atan2(direction.z, direction.y) + .pi / 2
         }
 
+        // The Pigeon-generated `Direction3D` and `UwbData` types are used here.
         let direction3d = Direction3D(x: Double(nearbyObject.direction?.x ?? 0), y: Double(nearbyObject.direction?.y ?? 0), z: Double(nearbyObject.direction?.z ?? 0))
         let uwbData = UwbData(
             distance: nearbyObject.distance.map { Double($0) },
