@@ -1,5 +1,15 @@
 package net.christiangreiner.uwb
 
+import UwbHostApi
+import UwbFlutterApi
+import UwbDevice
+import UwbSessionConfig
+import UwbData
+import uwb.Direction3D
+import DeviceState
+import DeviceType
+import PermissionAction
+
 import android.content.Context
 import androidx.core.uwb.UwbManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -7,16 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-// Correctly import all necessary Pigeon-generated classes
-import net.christiangreiner.uwb.UwbHostApi
-import net.christiangreiner.uwb.UwbFlutterApi
-import net.christiangreiner.uwb.UwbDevice
-import net.christiangreiner.uwb.UwbSessionConfig
-import net.christiangreiner.uwb.UwbData
-import net.christiangreiner.uwb.Direction3D
-import net.christiangreiner.uwb.DeviceState
-import net.christiangreiner.uwb.DeviceType
-import net.christiangreiner.uwb.PermissionAction
+
 import java.lang.Exception
 
 

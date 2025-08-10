@@ -1,5 +1,13 @@
 package net.christiangreiner.uwb
 
+// Import Pigeon-generated classes
+import UwbDevice
+import UwbSessionConfig
+import UwbData
+import Direction3D
+import DeviceType
+import DeviceState
+
 import android.content.Context
 import androidx.core.uwb.RangingParameters
 import androidx.core.uwb.UwbManager
@@ -7,15 +15,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
 import androidx.core.uwb.RangingResult
-import androidx.core.uwb.UwbDevice as UwbPeerDevice // Alias to avoid name clash
+import androidx-core-uwb.UwbDevice as UwbPeerDevice // Alias to avoid name clash
+import java.lang.Exception
 
-// Import Pigeon-generated classes
-import net.christiangreiner.uwb.UwbDevice
-import net.christiangreiner.uwb.UwbSessionConfig
-import net.christiangreiner.uwb.UwbData
-import net.christiangreiner.uwb.Direction3D
-import net.christiangreiner.uwb.DeviceType
-import net.christiangreiner.uwb.DeviceState
+
+
 
 // Listener interface to decouple from Flutter
 interface UwbConnectionListener {
