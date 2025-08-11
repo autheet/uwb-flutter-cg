@@ -43,11 +43,13 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     }
 
     override fun getLocalEndpoint(result: (Result<ByteArray>) -> Unit) {
-        if (uwbClient == null) {
-            result(Result.failure(Exception("UWB client not initialized.")))
+        if (appContext == null) {
+            result(Result.failure(Exception("App context not available.")))
             return
         }
-        result(Result.success(uwbClient!!.localAddress))
+        // Always create a new client for the local endpoint, as the session may not have started yet.
+        val client = UwbClient.getControllingClient(appContext!!)
+        result(Result.success(client.localAddress))
     }
 
     override fun startRanging(peerEndpoint: ByteArray, isController: Boolean, result: (Result<Unit>) -> Unit) {

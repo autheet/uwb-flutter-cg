@@ -4,10 +4,10 @@ import 'dart:io';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
-import 'package:uwb/src/uwb.dart';
+import 'package:uwb/src/uwb.g.dart';
 
 class OobBle {
-  final FlutterUwb _uwb = FlutterUwb();
+  final UwbHostApi _hostApi = UwbHostApi();
   final CentralManager _centralManager;
   final PeripheralManager _peripheralManager;
   final UUID _serviceUuid;
@@ -47,7 +47,6 @@ class OobBle {
     _stopDiscovery();
     _centralStateSubscription?.cancel();
     _discoveredPeripherals.clear();
-    _uwb.dispose();
   }
 
   void _listenToStateChanges() {
@@ -153,7 +152,7 @@ class OobBle {
           .firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
 
       if (Platform.isIOS) {
-        final localEndpoint = await _uwb.getLocalEndpoint();
+        final localEndpoint = await _hostApi.getLocalEndpoint();
         await _centralManager.writeCharacteristic(
           peripheral,
           handshakeCharacteristic,
@@ -164,7 +163,7 @@ class OobBle {
         final peerEndpoint = await _centralManager.readCharacteristic(
             peripheral, handshakeCharacteristic);
         final isController = _deviceName!.compareTo(peerDeviceName) < 0;
-        await _uwb.startRanging(peerEndpoint, isController: isController);
+        await _hostApi.startRanging(peerEndpoint, isController);
       }
     } catch (e) {
       debugPrint(

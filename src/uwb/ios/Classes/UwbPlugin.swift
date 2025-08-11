@@ -21,6 +21,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
     }
     
     func getLocalEndpoint(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+        // Always create a new session for the local endpoint, as the session may not have started yet.
         let session = NISession()
         session.delegate = self
         self.niSession = session

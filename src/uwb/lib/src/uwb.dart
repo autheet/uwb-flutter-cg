@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:uwb/src/uwb.g.dart';
 import 'package:uwb/src/exceptions.dart';
+import 'package:uwb/src/oob_ble.dart';
 
 export 'package:uwb/src/uwb.g.dart' show UwbRangingDevice, UwbRangingData, UwbDeviceState;
 
@@ -9,9 +10,9 @@ export 'package:uwb/src/uwb.g.dart' show UwbRangingDevice, UwbRangingData, UwbDe
 class FlutterUwb implements UwbFlutterApi {
   final _rangingResultController = StreamController<UwbRangingDevice>.broadcast();
   final _rangingErrorController = StreamController<String>.broadcast();
-  final _shareableConfigController = StreamController<Uint8List>.broadcast();
 
   final UwbHostApi _hostApi = UwbHostApi();
+  late final OobBle _oobBle;
 
   static final FlutterUwb _instance = FlutterUwb._internal();
   factory FlutterUwb() => _instance;
@@ -36,13 +37,6 @@ class FlutterUwb implements UwbFlutterApi {
     }
   }
 
-  @override
-  void onShareableConfigurationData(Uint8List data, String peerId) {
-    if (!_shareableConfigController.isClosed) {
-      _shareableConfigController.add(data);
-    }
-  }
-
   // --- Public API ---
 
   /// A stream of UWB ranging results.
@@ -53,52 +47,32 @@ class FlutterUwb implements UwbFlutterApi {
   Stream<String> get rangingErrorStream =>
       _rangingErrorController.stream;
 
-  /// A stream of shareable configuration data (for iOS).
-  Stream<Uint8List> get shareableConfigStream =>
-      _shareableConfigController.stream;
-
-  /// Checks if UWB is supported on the device.
-  Future<bool> isSupported() async {
-    return await _hostApi.isSupported();
+  /// Starts the UWB session.
+  Future<void> start({
+    required String deviceName,
+    required String serviceUuid,
+    required String handshakeCharacteristicUuid,
+    required String platformCharacteristicUuid,
+  }) async {
+    _oobBle = OobBle(
+      serviceUuid: serviceUuid,
+      handshakeCharacteristicUuid: handshakeCharacteristicUuid,
+      platformCharacteristicUuid: platformCharacteristicUuid,
+      deviceName: deviceName,
+    );
+    await _oobBle.start();
   }
 
-  /// Gets the local UWB endpoint identifier.
-  Future<Uint8List> getLocalEndpoint() async {
-    return await _hostApi.getLocalEndpoint();
-  }
-
-  /// Starts a ranging session with a peer.
-  Future<void> startRanging(Uint8List peerEndpoint, {bool isController = false}) async {
-    try {
-      await _hostApi.startRanging(peerEndpoint, isController);
-    } on PlatformException catch (e) {
-      throw _parsePlatformException(e);
-    }
-  }
-
-  /// Stops the current ranging session.
-  Future<void> stopRanging() async {
-    try {
-      await _hostApi.stopRanging();
-    } on PlatformException catch (e) {
-      throw _parsePlatformException(e);
-    }
-  }
-
-  /// Closes the UWB session and releases all resources.
-  Future<void> closeSession() async {
-    try {
-      await _hostApi.closeSession();
-    } on PlatformException catch (e) {
-      throw _parsePlatformException(e);
-    }
+  /// Stops the UWB session.
+  void stop() {
+    _oobBle.dispose();
   }
 
   /// Disposes of the streams.
   void dispose() {
     _rangingResultController.close();
     _rangingErrorController.close();
-    _shareableConfigController.close();
+    _oobBle.dispose();
   }
 
   UwbException _parsePlatformException(PlatformException e) {
