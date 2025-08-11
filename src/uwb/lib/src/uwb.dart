@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:uwb/src/uwb.g.dart';
-import 'package:uwb/src/exceptions.dart';
 import 'package:uwb/src/oob_ble.dart';
 
 export 'package:uwb/src/uwb.g.dart' show UwbRangingDevice, UwbRangingData, UwbDeviceState;
@@ -75,7 +74,5 @@ class FlutterUwb implements UwbFlutterApi {
     _oobBle.dispose();
   }
 
-  UwbException _parsePlatformException(PlatformException e) {
-    return UwbException(e.code, e.message);
-  }
+
 }
