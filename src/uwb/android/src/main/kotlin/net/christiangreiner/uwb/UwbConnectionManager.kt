@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class UwbConnectionManager(
@@ -40,7 +41,7 @@ class UwbConnectionManager(
                             val position = rangingResult.position
                             val result = net.christiangreiner.uwb.RangingResult(
                                 peerAddress = position.device.address.toString(),
-                                deviceName = "", // Device name is handled in Dart
+                                deviceName = "",
                                 distance = position.position.distance?.value?.toDouble(),
                                 azimuth = position.position.azimuth?.value?.toDouble(),
                                 elevation = position.position.elevation?.value?.toDouble()

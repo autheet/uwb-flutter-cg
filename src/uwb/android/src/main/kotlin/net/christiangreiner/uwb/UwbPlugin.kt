@@ -7,6 +7,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+// Import the generated Pigeon class
+import net.christiangreiner.uwb.UwbHostApi
+
 class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private var appContext: Context? = null
@@ -65,7 +68,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         scope.launch {
             try {
                 val client = UwbClient.getAccessoryClient(context)
-                // The config data is the accessory's local UWB address.
                 callback(Result.success(client.localAddress.address))
             } catch (e: Exception) {
                 callback(Result.failure(e))
@@ -91,7 +93,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
         scope.launch {
             try {
-                // If this device is an accessory, it needs to create its own UWB client now.
                 if (!isController) {
                     val client = UwbClient.getAccessoryClient(context)
                     uwbConnectionManager = getRangingManager(client)
