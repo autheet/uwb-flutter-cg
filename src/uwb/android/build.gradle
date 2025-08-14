@@ -2,13 +2,13 @@ group 'net.christiangreiner.uwb'
 version '1.0'
 
 buildscript {
-    ext.kotlin_version = '1.8.22'
+    ext.kotlin_version = '1.9.22'
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.2'
+        classpath 'com.android.tools.build:gradle:8.2.0'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -25,10 +25,9 @@ apply plugin: 'kotlin-android'
 
 android {
     namespace "net.christiangreiner.uwb"
-    compileSdkVersion 36
+    compileSdkVersion 34
 
     compileOptions {
-        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
@@ -42,16 +41,17 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 31 // Corrected to meet UWB library requirements
+        minSdkVersion 21
     }
 }
 
 dependencies {
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-    implementation 'io.reactivex.rxjava3:rxandroid:3.0.2'
-    implementation "androidx.core.uwb:uwb:1.0.0-alpha10"
-    implementation "androidx.core.uwb:uwb-rxjava3:1.0.0-alpha10"
+    implementation "androidx.core:core-ktx:1.12.0"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
+    // UWB libraries from AndroidX
+     implementation("androidx.core.uwb:uwb:1.0.0-alpha10")
+    implementation("androidx.core.uwb:uwb-rxjava3:1.0.0-alpha10")
 }
