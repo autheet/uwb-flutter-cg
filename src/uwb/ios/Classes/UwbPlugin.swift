@@ -4,6 +4,10 @@ import UIKit
 import NearbyInteraction
 import MultipeerConnectivity
 
+// By default, FlutterError does not conform to the Swift Error protocol.
+// We can make it conform by adding an extension.
+extension FlutterError: Error {}
+
 public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, MCNearbyServiceAdvertiserDelegate, MCNearbyServiceBrowserDelegate, MCSessionDelegate {
     
     var advertiser: MCNearbyServiceAdvertiser?
