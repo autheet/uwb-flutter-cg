@@ -1,18 +1,26 @@
 package net.christiangreiner.uwb
 
 import android.content.Context
+import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbClient
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private var appContext: Context? = null
-    private var uwbConnectionManager: UwbConnectionManager? = null
     private var flutterApi: UwbFlutterApi? = null
     private val scope = CoroutineScope(Dispatchers.Main)
+    
+    // UWB-specific properties, moved from UwbConnectionManager
+    private var uwbClient: UwbClient? = null
+    private var rangingJob: Job? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -24,18 +32,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         UwbHostApi.setUp(binding.binaryMessenger, null)
         appContext = null
         flutterApi = null
-    }
-
-    private fun getRangingManager(client: UwbClient): UwbConnectionManager {
-        return UwbConnectionManager(
-            uwbClient = client,
-            onRangingResult = { result ->
-                flutterApi?.onRangingResult(result) {}
-            },
-            onRangingError = { error ->
-                flutterApi?.onRangingError(error) {}
-            }
-        )
+        scope.cancel()
     }
     
     override fun start(deviceName: String, serviceUUIDDigest: String, callback: (Result<Unit>) -> Unit) {
@@ -43,15 +40,10 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     }
 
     override fun stop(callback: (Result<Unit>) -> Unit) {
-        scope.launch {
-            try {
-                uwbConnectionManager?.stopRanging()
-                uwbConnectionManager = null
-                callback(Result.success(Unit))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
-        }
+        rangingJob?.cancel()
+        rangingJob = null
+        uwbClient = null
+        callback(Result.success(Unit))
     }
 
     override fun getAndroidAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit) {
@@ -59,6 +51,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         scope.launch {
             try {
                 val client = UwbClient.getAccessoryClient(context)
+                uwbClient = client
                 callback(Result.success(client.localAddress.address))
             } catch (e: Exception) {
                 callback(Result.failure(e))
@@ -71,9 +64,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         scope.launch {
             try {
                 val client = UwbClient.getControllingClient(context)
-                uwbConnectionManager = getRangingManager(client)
-                val shareableData = uwbConnectionManager!!.prepareControllerSession(accessoryConfigurationData)
-                callback(Result.success(shareableData))
+                uwbClient = client
+                val rangingParameters = client.prepareSession(accessoryConfigurationData)
+                callback(Result.success(rangingParameters.shareableData))
             } catch (e: Exception) {
                 callback(Result.failure(e))
             }
@@ -85,11 +78,41 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         scope.launch {
             try {
                 if (!isController) {
-                    val client = UwbClient.getAccessoryClient(context)
-                    uwbConnectionManager = getRangingManager(client)
+                    uwbClient = UwbClient.getAccessoryClient(context)
                 }
-                uwbConnectionManager?.startRanging(configData, isController)
+
+                val client = uwbClient ?: return@launch callback(Result.failure(Exception("UwbClient not initialized")))
+
+                if (rangingJob?.isActive == true) {
+                    rangingJob?.cancel()
+                }
+
+                val sessionFlow = if (isController) {
+                    client.controllerRanging(configData)
+                } else {
+                    client.accessoryRanging(configData)
+                }
+
+                rangingJob = sessionFlow.onEach {
+                    when (it) {
+                        is RangingResult.RangingResultPosition -> {
+                            val position = it.position
+                            val result = RangingResult(
+                                peerAddress = position.device.address.toString(),
+                                deviceName = "",
+                                distance = position.position.distance?.value?.toDouble(),
+                                azimuth = position.position.azimuth?.value?.toDouble(),
+                                elevation = position.position.elevation?.value?.toDouble()
+                            )
+                            flutterApi?.onRangingResult(result) {}
+                        }
+                        is RangingResult.RangingResultLoss -> {
+                            // Handled by BLE layer
+                        }
+                    }
+                }.launchIn(scope)
                 callback(Result.success(Unit))
+
             } catch (e: Exception) {
                 callback(Result.failure(e))
             }

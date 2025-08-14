@@ -25,7 +25,7 @@ apply plugin: 'kotlin-android'
 
 android {
     namespace "net.christiangreiner.uwb"
-    compileSdkVersion 35
+    compileSdkVersion 36
 
     compileOptions {
         coreLibraryDesugaringEnabled true
@@ -41,9 +41,8 @@ android {
         main.java.srcDirs += 'src/main/kotlin'
     }
 
-    // **FIX:** Added defaultConfig to set the minimum required SDK version for UWB.
     defaultConfig {
-        minSdkVersion 32
+        minSdkVersion 26
     }
 }
 
