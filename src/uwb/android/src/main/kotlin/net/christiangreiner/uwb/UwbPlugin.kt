@@ -3,13 +3,16 @@ package net.christiangreiner.uwb
 import android.content.Context
 import androidx.core.uwb.UwbClient
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private var appContext: Context? = null
-    private var uwbClient: UwbClient? = null
     private var uwbConnectionManager: UwbConnectionManager? = null
     private var flutterApi: UwbFlutterApi? = null
+    private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -23,64 +26,87 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         flutterApi = null
     }
 
-    private fun getManager(uwbClient: UwbClient): UwbConnectionManager {
-        if (uwbConnectionManager == null) {
-            uwbConnectionManager = UwbConnectionManager(
-                uwbClient,
-                onRangingResult = { device ->
-                    flutterApi?.onRangingResult(device) {}
-                },
-                onRangingError = { error ->
-                    flutterApi?.onRangingError(error) {}
-                }
-            )
-        }
-        return uwbConnectionManager!!
+    private fun getRangingManager(client: UwbClient): UwbConnectionManager {
+        return UwbConnectionManager(
+            context = appContext!!,
+            uwbClient = client,
+            onRangingResult = { result ->
+                flutterApi?.onRangingResult(result) {}
+            },
+            onRangingError = { error ->
+                flutterApi?.onRangingError(error) {}
+            }
+        )
+    }
+    
+    // --- PEER-TO-PEER (UNSUPPORTED ON ANDROID) ---
+
+    override fun getPeerDiscoveryToken(callback: (Result<ByteArray>) -> Unit) {
+        callback(Result.failure(Exception("Peer-to-peer ranging is not supported on Android.")))
     }
 
-    override fun isSupported(result: (Result<Boolean>) -> Unit) {
-        result(Result.success(appContext != null && UwbClient.isUwbSupported(appContext!!)))
+    override fun startPeerRanging(token: ByteArray, callback: (Result<Unit>) -> Unit) {
+        callback(Result.failure(Exception("Peer-to-peer ranging is not supported on Android.")))
     }
 
-    override fun getLocalEndpoint(result: (Result<ByteArray>) -> Unit) {
-        if (appContext == null) {
-            result(Result.failure(Exception("App context not available.")))
-            return
+    // --- ACCESSORY RANGING (SUPPORTED) ---
+
+    override fun getAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit) {
+        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
+        scope.launch {
+            try {
+                // This device is acting as an accessory.
+                val client = UwbClient.getAccessoryClient(context)
+                // The config data is its local address.
+                callback(Result.success(client.localAddress.address))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
         }
-        // Always create a new client for the local endpoint, as the session may not have started yet.
-        val client = UwbClient.getControllingClient(appContext!!)
-        result(Result.success(client.localAddress))
     }
 
-    override fun startRanging(peerEndpoint: ByteArray, isController: Boolean, result: (Result<Unit>) -> Unit) {
-        if (appContext == null) {
-            result(Result.failure(Exception("App context not available.")))
-            return
+    override fun startControllerRanging(accessoryData: ByteArray, callback: (Result<ByteArray>) -> Unit) {
+        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
+        scope.launch {
+            try {
+                // This device is acting as the controller.
+                val client = UwbClient.getControllingClient(context)
+                uwbConnectionManager = getRangingManager(client)
+                // Prepare the session with the accessory's data and get the shareable config data.
+                val shareableData = uwbConnectionManager!!.prepareControllerSession(accessoryData)
+                // Return the shareable data to be sent back to the accessory.
+                callback(Result.success(shareableData))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
         }
-        uwbClient = if (isController) {
-            UwbClient.getControllingClient(appContext!!)
-        } else {
-            UwbClient.getAccessoryClient(appContext!!)
-        }
-        getManager(uwbClient!!).startRanging(peerEndpoint)
-        result(Result.success(Unit))
     }
 
-    override fun stopRanging(result: (Result<Unit>) -> Unit) {
-        if (uwbConnectionManager == null) {
-            result(Result.failure(Exception("Ranging not started.")))
-            return
+    override fun startAccessoryRanging(shareableData: ByteArray, callback: (Result<Unit>) -> Unit) {
+        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
+        scope.launch {
+            try {
+                // This device is acting as an accessory. It needs its own client.
+                val client = UwbClient.getAccessoryClient(context)
+                uwbConnectionManager = getRangingManager(client)
+                // Start ranging using the controller's shareable data.
+                uwbConnectionManager!!.startRanging(shareableData, false)
+                callback(Result.success(Unit))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
         }
-        uwbConnectionManager!!.stopRanging()
-        result(Result.success(Unit))
     }
 
-    override fun closeSession(result: (Result<Unit>) -> Unit) {
-        if (uwbConnectionManager != null) {
-            uwbConnectionManager!!.closeSession()
-            uwbConnectionManager = null
+    override fun stopRanging(callback: (Result<Unit>) -> Unit) {
+        scope.launch {
+            try {
+                uwbConnectionManager?.stopRanging()
+                uwbConnectionManager = null
+                callback(Result.success(Unit))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
         }
-        uwbClient = null
-        result(Result.success(Unit))
     }
 }

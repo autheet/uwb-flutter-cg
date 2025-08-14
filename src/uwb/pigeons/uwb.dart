@@ -1,78 +1,68 @@
-// ignore_for_file: public_member_api_docs
+// ignore_for_file: constant_identifier_names
 
 import 'package:pigeon/pigeon.dart';
 
-@ConfigurePigeon(
-  PigeonOptions(
-    dartOut: 'lib/src/uwb.g.dart',
-    dartOptions: DartOptions(),
-    kotlinOut: 'android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt',
-    kotlinOptions: KotlinOptions(
-      errorClassName: 'UwbError',
-      package: 'net.christiangreiner.uwb',
-    ),
-    swiftOut: 'ios/Classes/Uwb.g.swift',
-    swiftOptions: SwiftOptions(),
-  ),
-)
+@ConfigurePigeon(PigeonOptions(
+  dartOut: 'lib/src/uwb.g.dart',
+  dartOptions: DartOptions(),
+  kotlinOut: 'android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt',
+  kotlinOptions: KotlinOptions(),
+  swiftOut: 'ios/Classes/Uwb.g.swift',
+  swiftOptions: SwiftOptions(),
+  dartPackageName: 'uwb',
+))
 
-// -------- Data Models -------- //
-
-enum UwbDeviceState {
-  connected,
-  disconnected,
-  ranging,
-  lost,
-}
-
-class UwbRangingData {
-  final double? distance;
-  final double? azimuth;
-  final double? elevation;
-
-  UwbRangingData({
-    this.distance,
-    this.azimuth,
-    this.elevation,
+/// A data class for passing ranging results from native to Dart.
+class RangingResult {
+  RangingResult({
+    required this.address,
+    required this.distance,
+    required this.azimuth,
+    required this.elevation,
   });
+
+  final String address;
+  final double distance;
+  final double azimuth;
+  final double elevation;
 }
 
-class UwbRangingDevice {
-  final String id;
-  final UwbDeviceState state;
-  final UwbRangingData? data;
-
-  UwbRangingDevice({
-    required this.id,
-    required this.state,
-    this.data,
-  });
-}
-
-// -------- Host API (called from Dart) -------- //
-
+/// The API exposed by the native platform to be called from Dart.
 @HostApi()
 abstract class UwbHostApi {
-  @async
-  bool isSupported();
-
-  @async
-  Uint8List getLocalEndpoint();
-
-  @async
-  void startRanging(Uint8List peerEndpoint, bool isController);
-
+  /// Stops any ongoing UWB session.
   @async
   void stopRanging();
 
+  // --- Peer Ranging Methods (iOS <-> iOS) ---
+
+  /// Retrieves the local device's NIDiscoveryToken for sharing. (iOS only)
   @async
-  void closeSession();
+  Uint8List getPeerDiscoveryToken();
+
+  /// Starts a peer-to-peer ranging session. (iOS only)
+  @async
+  void startPeerRanging(Uint8List token);
+
+  // --- Accessory Ranging Methods (iOS <-> Android / Android <-> Android) ---
+
+  /// Retrieves the accessory's configuration data to be sent to a controller.
+  @async
+  Uint8List getAccessoryConfigurationData();
+
+  /// Starts a ranging session as a Controller, using the accessory's data.
+  /// Returns the shareable configuration data to be sent back to the accessory.
+  @async
+  Uint8List startControllerRanging(Uint8List accessoryData);
+
+  /// Starts a ranging session as an Accessory, using the controller's shareable data.
+  @async
+  void startAccessoryRanging(Uint8List shareableData);
 }
 
-// -------- Flutter API (called from native) -------- //
-
+/// The API exposed by Dart to be called from the native platform.
 @FlutterApi()
 abstract class UwbFlutterApi {
-  void onRangingResult(UwbRangingDevice device);
+  void onRangingResult(RangingResult result);
   void onRangingError(String error);
 }

@@ -1,54 +1,71 @@
 package net.christiangreiner.uwb
 
-import android.annotation.SuppressLint
-import androidx.core.uwb.RangingPosition
+import android.content.Context
+import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbClient
-import androidx.core.uwb.UwbDevice
-import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
-import io.reactivex.rxjava3.disposables.Disposable
+import androidx.core.uwb.UwbControllerSessionScope
+import androidx.core.uwb.UwbManager
+import androidx.core.uwb.UwbAccessorySessionScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
-@SuppressLint("CheckResult")
 class UwbConnectionManager(
+    private val context: Context,
     private val uwbClient: UwbClient,
-    private val onRangingResult: (UwbRangingDevice) -> Unit,
-    private val onRangingError: (String) -> Unit,
+    private val onRangingResult: (RangingResult) -> Unit,
+    private val onRangingError: (String) -> Unit
 ) {
-    private var rangingDisposable: Disposable? = null
+    private var sessionScope: CoroutineScope? = null
+    private var rangingJob: Job? = null
 
-    fun startRanging(peerEndpoint: ByteArray) {
-        if (rangingDisposable != null) {
-            return
+    suspend fun prepareControllerSession(accessoryAddress: ByteArray): ByteArray {
+        val scope = UwbManager.controllerSessionScope(uwbClient)
+        this.sessionScope = scope
+        return scope.prepareSession(accessoryAddress)
+    }
+
+    fun startRanging(shareableData: ByteArray, isController: Boolean) {
+        val scopeToUse = sessionScope ?: return
+
+        rangingJob = if (isController) {
+            (scopeToUse as UwbControllerSessionScope).rangingResults
+                .onEach { onRangingResult(it.toRangingResult()) }
+                .catch { e -> onRangingError(e.toString()) }
+                .launchIn(scopeToUse)
+        } else {
+            // For the accessory, we need to create a new session scope
+            val accessoryScope = UwbManager.accessorySessionScope(uwbClient)
+            this.sessionScope = accessoryScope
+            accessoryScope.rangingResults
+                .onEach { onRangingResult(it.toRangingResult()) }
+                .catch { e -> onRangingError(e.toString()) }
+                .launchIn(accessoryScope)
         }
-
-        val peer = UwbDevice(peerEndpoint)
-        val rangingSpec = uwbClient.prepareSession(listOf(peer))
-
-        rangingDisposable =
-            uwbClient
-                .ranging(rangingSpec)
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { rangingResult ->
-                        when (rangingResult) {
-                            is RangingPosition -> {
-                                onRangingResult(UwbDataHandler.rangingPositionToDevice(rangingResult))
-                            }
-                            is RangingLoss -> {
-                                onRangingResult(UwbDataHandler.rangingLossToDevice(rangingResult))
-                            }
-                        }
-                    },
-                    { throwable -> onRangingError(throwable.toString()) }
-                )
     }
 
     fun stopRanging() {
-        rangingDisposable?.dispose()
-        rangingDisposable = null
+        rangingJob?.cancel()
+        sessionScope?.cancel()
+        rangingJob = null
+        sessionScope = null
     }
 
-    fun closeSession() {
-        stopRanging()
-        uwbClient.close()
+    private fun RangingResult.toRangingResult(): RangingResult {
+        val position = this.position
+        val distance = position?.distance?.value
+        val azimuth = position?.azimuth?.value
+        val elevation = position?.elevation?.value
+        return RangingResult(
+            address = this.device.address.toString(),
+            distance = distance?.toDouble() ?: 0.0,
+            azimuth = azimuth?.toDouble() ?: 0.0,
+            elevation = elevation?.toDouble() ?: 0.0,
+        )
     }
 }
