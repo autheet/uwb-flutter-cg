@@ -7,9 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-// Import the generated Pigeon class
-import net.christiangreiner.uwb.UwbHostApi
-
 class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private var appContext: Context? = null
@@ -42,10 +39,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         )
     }
     
-    // --- Lifecycle Methods ---
-
     override fun start(deviceName: String, serviceUUIDDigest: String, callback: (Result<Unit>) -> Unit) {
-        // BLE is handled in Dart, so this is a no-op on the native side.
         callback(Result.success(Unit))
     }
 
@@ -60,8 +54,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
             }
         }
     }
-
-    // --- Android Specific Handshake Methods ---
 
     override fun getAndroidAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit) {
         val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
@@ -104,8 +96,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
             }
         }
     }
-    
-    // --- iOS Specific Methods (Placeholders) ---
     
     override fun startIosController(callback: (Result<ByteArray>) -> Unit) {
         callback(Result.failure(Exception("This method is for iOS only.")))
