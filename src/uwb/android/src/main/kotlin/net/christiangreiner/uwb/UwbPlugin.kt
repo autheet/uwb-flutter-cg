@@ -39,66 +39,14 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         )
     }
     
-    // --- PEER-TO-PEER (UNSUPPORTED ON ANDROID) ---
+    // --- Lifecycle Methods ---
 
-    override fun getPeerDiscoveryToken(callback: (Result<ByteArray>) -> Unit) {
-        callback(Result.failure(Exception("Peer-to-peer ranging is not supported on Android.")))
+    override fun start(deviceName: String, serviceUUIDDigest: String, callback: (Result<Unit>) -> Unit) {
+        // BLE is handled in Dart, so this is a no-op on the native side.
+        callback(Result.success(Unit))
     }
 
-    override fun startPeerRanging(token: ByteArray, callback: (Result<Unit>) -> Unit) {
-        callback(Result.failure(Exception("Peer-to-peer ranging is not supported on Android.")))
-    }
-
-    // --- ACCESSORY RANGING (SUPPORTED) ---
-
-    override fun getAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit) {
-        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
-        scope.launch {
-            try {
-                // This device is acting as an accessory.
-                val client = UwbClient.getAccessoryClient(context)
-                // The config data is its local address.
-                callback(Result.success(client.localAddress.address))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
-        }
-    }
-
-    override fun startControllerRanging(accessoryData: ByteArray, callback: (Result<ByteArray>) -> Unit) {
-        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
-        scope.launch {
-            try {
-                // This device is acting as the controller.
-                val client = UwbClient.getControllingClient(context)
-                uwbConnectionManager = getRangingManager(client)
-                // Prepare the session with the accessory's data and get the shareable config data.
-                val shareableData = uwbConnectionManager!!.prepareControllerSession(accessoryData)
-                // Return the shareable data to be sent back to the accessory.
-                callback(Result.success(shareableData))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
-        }
-    }
-
-    override fun startAccessoryRanging(shareableData: ByteArray, callback: (Result<Unit>) -> Unit) {
-        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
-        scope.launch {
-            try {
-                // This device is acting as an accessory. It needs its own client.
-                val client = UwbClient.getAccessoryClient(context)
-                uwbConnectionManager = getRangingManager(client)
-                // Start ranging using the controller's shareable data.
-                uwbConnectionManager!!.startRanging(shareableData, false)
-                callback(Result.success(Unit))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
-        }
-    }
-
-    override fun stopRanging(callback: (Result<Unit>) -> Unit) {
+    override fun stop(callback: (Result<Unit>) -> Unit) {
         scope.launch {
             try {
                 uwbConnectionManager?.stopRanging()
@@ -108,5 +56,61 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
                 callback(Result.failure(e))
             }
         }
+    }
+
+    // --- Android Specific Handshake Methods ---
+
+    override fun getAndroidAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit) {
+        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
+        scope.launch {
+            try {
+                val client = UwbClient.getAccessoryClient(context)
+                // The config data is the accessory's local UWB address.
+                callback(Result.success(client.localAddress.address))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
+        }
+    }
+
+    override fun initializeAndroidController(accessoryConfigurationData: ByteArray, callback: (Result<ByteArray>) -> Unit) {
+        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
+        scope.launch {
+            try {
+                val client = UwbClient.getControllingClient(context)
+                uwbConnectionManager = getRangingManager(client)
+                val shareableData = uwbConnectionManager!!.prepareControllerSession(accessoryConfigurationData)
+                callback(Result.success(shareableData))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
+        }
+    }
+
+    override fun startAndroidRanging(configData: ByteArray, isController: Boolean, callback: (Result<Unit>) -> Unit) {
+        val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
+        scope.launch {
+            try {
+                // If this device is an accessory, it needs to create its own UWB client now.
+                if (!isController) {
+                    val client = UwbClient.getAccessoryClient(context)
+                    uwbConnectionManager = getRangingManager(client)
+                }
+                uwbConnectionManager!!.startRanging(configData, isController)
+                callback(Result.success(Unit))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
+        }
+    }
+    
+    // --- iOS Specific Methods (Placeholders) ---
+    
+    override fun startIosController(callback: (Result<ByteArray>) -> Unit) {
+        callback(Result.failure(Exception("This method is for iOS only.")))
+    }
+
+    override fun startIosAccessory(token: ByteArray, callback: (Result<Unit>) -> Unit) {
+        callback(Result.failure(Exception("This method is for iOS only.")))
     }
 }

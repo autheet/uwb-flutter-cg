@@ -25,26 +25,29 @@ List<Object?> wrapResponse({Object? result, PlatformException? error, bool empty
   return <Object?>[error.code, error.message, error.details];
 }
 
-/// A data class for passing ranging results from native to Dart.
 class RangingResult {
   RangingResult({
-    required this.address,
-    required this.distance,
-    required this.azimuth,
-    required this.elevation,
+    required this.peerAddress,
+    required this.deviceName,
+    this.distance,
+    this.azimuth,
+    this.elevation,
   });
 
-  String address;
+  String peerAddress;
 
-  double distance;
+  String deviceName;
 
-  double azimuth;
+  double? distance;
 
-  double elevation;
+  double? azimuth;
+
+  double? elevation;
 
   Object encode() {
     return <Object?>[
-      address,
+      peerAddress,
+      deviceName,
       distance,
       azimuth,
       elevation,
@@ -54,15 +57,15 @@ class RangingResult {
   static RangingResult decode(Object result) {
     result as List<Object?>;
     return RangingResult(
-      address: result[0]! as String,
-      distance: result[1]! as double,
-      azimuth: result[2]! as double,
-      elevation: result[3]! as double,
+      peerAddress: result[0]! as String,
+      deviceName: result[1]! as String,
+      distance: result[2] as double?,
+      azimuth: result[3] as double?,
+      elevation: result[4] as double?,
     );
   }
 }
 
-/// The API exposed by the native platform to be called from Dart.
 class UwbHostApi {
   /// Constructor for [UwbHostApi].  The [binaryMessenger] named argument is
   /// available for dependency injection.  If it is left null, the default
@@ -73,9 +76,30 @@ class UwbHostApi {
 
   static const MessageCodec<Object?> pigeonChannelCodec = StandardMessageCodec();
 
-  /// Stops any ongoing UWB session.
-  Future<void> stopRanging() async {
-    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.stopRanging';
+  Future<void> start(String deviceName, String serviceUUIDDigest) async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.start';
+    final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+      __pigeon_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: __pigeon_binaryMessenger,
+    );
+    final List<Object?>? __pigeon_replyList =
+        await __pigeon_channel.send(<Object?>[deviceName, serviceUUIDDigest]) as List<Object?>?;
+    if (__pigeon_replyList == null) {
+      throw _createConnectionError(__pigeon_channelName);
+    } else if (__pigeon_replyList.length > 1) {
+      throw PlatformException(
+        code: __pigeon_replyList[0]! as String,
+        message: __pigeon_replyList[1] as String?,
+        details: __pigeon_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> stop() async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.stop';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
@@ -96,9 +120,8 @@ class UwbHostApi {
     }
   }
 
-  /// Retrieves the local device's NIDiscoveryToken for sharing. (iOS only)
-  Future<Uint8List> getPeerDiscoveryToken() async {
-    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.getPeerDiscoveryToken';
+  Future<Uint8List> startIosController() async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startIosController';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
@@ -124,9 +147,8 @@ class UwbHostApi {
     }
   }
 
-  /// Starts a peer-to-peer ranging session. (iOS only)
-  Future<void> startPeerRanging(Uint8List token) async {
-    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startPeerRanging';
+  Future<void> startIosAccessory(Uint8List token) async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startIosAccessory';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
@@ -147,9 +169,8 @@ class UwbHostApi {
     }
   }
 
-  /// Retrieves the accessory's configuration data to be sent to a controller.
-  Future<Uint8List> getAccessoryConfigurationData() async {
-    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.getAccessoryConfigurationData';
+  Future<Uint8List> getAndroidAccessoryConfigurationData() async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.getAndroidAccessoryConfigurationData';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
@@ -175,17 +196,15 @@ class UwbHostApi {
     }
   }
 
-  /// Starts a ranging session as a Controller, using the accessory's data.
-  /// Returns the shareable configuration data to be sent back to the accessory.
-  Future<Uint8List> startControllerRanging(Uint8List accessoryData) async {
-    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startControllerRanging';
+  Future<Uint8List> initializeAndroidController(Uint8List accessoryConfigurationData) async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.initializeAndroidController';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
       binaryMessenger: __pigeon_binaryMessenger,
     );
     final List<Object?>? __pigeon_replyList =
-        await __pigeon_channel.send(<Object?>[accessoryData]) as List<Object?>?;
+        await __pigeon_channel.send(<Object?>[accessoryConfigurationData]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
@@ -204,16 +223,15 @@ class UwbHostApi {
     }
   }
 
-  /// Starts a ranging session as an Accessory, using the controller's shareable data.
-  Future<void> startAccessoryRanging(Uint8List shareableData) async {
-    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startAccessoryRanging';
+  Future<void> startAndroidRanging(Uint8List configData, bool isController) async {
+    const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startAndroidRanging';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
       binaryMessenger: __pigeon_binaryMessenger,
     );
     final List<Object?>? __pigeon_replyList =
-        await __pigeon_channel.send(<Object?>[shareableData]) as List<Object?>?;
+        await __pigeon_channel.send(<Object?>[configData, isController]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
@@ -251,13 +269,18 @@ class _UwbFlutterApiCodec extends StandardMessageCodec {
   }
 }
 
-/// The API exposed by Dart to be called from the native platform.
 abstract class UwbFlutterApi {
   static const MessageCodec<Object?> pigeonChannelCodec = _UwbFlutterApiCodec();
 
   void onRangingResult(RangingResult result);
 
   void onRangingError(String error);
+
+  void onBleDataReceived(Uint8List data);
+
+  void onPeerDiscovered(String deviceName, String peerAddress);
+
+  void onPeerLost(String deviceName, String peerAddress);
 
   static void setup(UwbFlutterApi? api, {BinaryMessenger? binaryMessenger}) {
     {
@@ -301,6 +324,87 @@ abstract class UwbFlutterApi {
               'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError was null, expected non-null String.');
           try {
             api.onRangingError(arg_error!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onBleDataReceived', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        __pigeon_channel.setMessageHandler(null);
+      } else {
+        __pigeon_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onBleDataReceived was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final Uint8List? arg_data = (args[0] as Uint8List?);
+          assert(arg_data != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onBleDataReceived was null, expected non-null Uint8List.');
+          try {
+            api.onBleDataReceived(arg_data!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDiscovered', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        __pigeon_channel.setMessageHandler(null);
+      } else {
+        __pigeon_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDiscovered was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final String? arg_deviceName = (args[0] as String?);
+          assert(arg_deviceName != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDiscovered was null, expected non-null String.');
+          final String? arg_peerAddress = (args[1] as String?);
+          assert(arg_peerAddress != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDiscovered was null, expected non-null String.');
+          try {
+            api.onPeerDiscovered(arg_deviceName!, arg_peerAddress!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerLost', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        __pigeon_channel.setMessageHandler(null);
+      } else {
+        __pigeon_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerLost was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final String? arg_deviceName = (args[0] as String?);
+          assert(arg_deviceName != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerLost was null, expected non-null String.');
+          final String? arg_peerAddress = (args[1] as String?);
+          assert(arg_peerAddress != null,
+              'Argument for dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerLost was null, expected non-null String.');
+          try {
+            api.onPeerLost(arg_deviceName!, arg_peerAddress!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

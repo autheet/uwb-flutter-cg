@@ -3,69 +3,64 @@ package net.christiangreiner.uwb
 import android.content.Context
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbClient
-import androidx.core.uwb.UwbControllerSessionScope
-import androidx.core.uwb.UwbManager
-import androidx.core.uwb.UwbAccessorySessionScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class UwbConnectionManager(
     private val context: Context,
     private val uwbClient: UwbClient,
-    private val onRangingResult: (RangingResult) -> Unit,
+    private val onRangingResult: (net.christiangreiner.uwb.RangingResult) -> Unit,
     private val onRangingError: (String) -> Unit
 ) {
-    private var sessionScope: CoroutineScope? = null
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
     private var rangingJob: Job? = null
 
     suspend fun prepareControllerSession(accessoryAddress: ByteArray): ByteArray {
-        val scope = UwbManager.controllerSessionScope(uwbClient)
-        this.sessionScope = scope
-        return scope.prepareSession(accessoryAddress)
+        val rangingParameters = uwbClient.prepareSession(accessoryAddress)
+        return rangingParameters.shareableData
     }
 
     fun startRanging(shareableData: ByteArray, isController: Boolean) {
-        val scopeToUse = sessionScope ?: return
+        if (rangingJob?.isActive == true) return
 
-        rangingJob = if (isController) {
-            (scopeToUse as UwbControllerSessionScope).rangingResults
-                .onEach { onRangingResult(it.toRangingResult()) }
-                .catch { e -> onRangingError(e.toString()) }
-                .launchIn(scopeToUse)
-        } else {
-            // For the accessory, we need to create a new session scope
-            val accessoryScope = UwbManager.accessorySessionScope(uwbClient)
-            this.sessionScope = accessoryScope
-            accessoryScope.rangingResults
-                .onEach { onRangingResult(it.toRangingResult()) }
-                .catch { e -> onRangingError(e.toString()) }
-                .launchIn(accessoryScope)
+        rangingJob = coroutineScope.launch {
+            try {
+                val sessionFlow = if (isController) {
+                    uwbClient.controllerRanging(shareableData)
+                } else {
+                    uwbClient.accessoryRanging(shareableData)
+                }
+                
+                sessionFlow.collect { rangingResult ->
+                    when (rangingResult) {
+                        is RangingResult.RangingResultPosition -> {
+                            val position = rangingResult.position
+                            val result = net.christiangreiner.uwb.RangingResult(
+                                peerAddress = position.device.address.toString(),
+                                deviceName = "", // Device name is handled in Dart
+                                distance = position.position.distance?.value?.toDouble(),
+                                azimuth = position.position.azimuth?.value?.toDouble(),
+                                elevation = position.position.elevation?.value?.toDouble()
+                            )
+                            onRangingResult(result)
+                        }
+                        is RangingResult.RangingResultLoss -> {
+                           // This is now handled by the BLE layer in Dart
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                onRangingError(e.message ?: "Unknown Ranging Error")
+            }
         }
     }
 
     fun stopRanging() {
         rangingJob?.cancel()
-        sessionScope?.cancel()
         rangingJob = null
-        sessionScope = null
-    }
-
-    private fun RangingResult.toRangingResult(): RangingResult {
-        val position = this.position
-        val distance = position?.distance?.value
-        val azimuth = position?.azimuth?.value
-        val elevation = position?.elevation?.value
-        return RangingResult(
-            address = this.device.address.toString(),
-            distance = distance?.toDouble() ?: 0.0,
-            azimuth = azimuth?.toDouble() ?: 0.0,
-            elevation = elevation?.toDouble() ?: 0.0,
-        )
+        coroutineScope.cancel()
     }
 }

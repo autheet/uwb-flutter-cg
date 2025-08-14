@@ -45,31 +45,30 @@ class FlutterError (
   val details: Any? = null
 ) : Throwable()
 
-/**
- * A data class for passing ranging results from native to Dart.
- *
- * Generated class from Pigeon that represents data sent in messages.
- */
+/** Generated class from Pigeon that represents data sent in messages. */
 data class RangingResult (
-  val address: String,
-  val distance: Double,
-  val azimuth: Double,
-  val elevation: Double
+  val peerAddress: String,
+  val deviceName: String,
+  val distance: Double? = null,
+  val azimuth: Double? = null,
+  val elevation: Double? = null
 
 ) {
   companion object {
     @Suppress("UNCHECKED_CAST")
     fun fromList(list: List<Any?>): RangingResult {
-      val address = list[0] as String
-      val distance = list[1] as Double
-      val azimuth = list[2] as Double
-      val elevation = list[3] as Double
-      return RangingResult(address, distance, azimuth, elevation)
+      val peerAddress = list[0] as String
+      val deviceName = list[1] as String
+      val distance = list[2] as Double?
+      val azimuth = list[3] as Double?
+      val elevation = list[4] as Double?
+      return RangingResult(peerAddress, deviceName, distance, azimuth, elevation)
     }
   }
   fun toList(): List<Any?> {
     return listOf<Any?>(
-      address,
+      peerAddress,
+      deviceName,
       distance,
       azimuth,
       elevation,
@@ -77,27 +76,15 @@ data class RangingResult (
   }
 }
 
-/**
- * The API exposed by the native platform to be called from Dart.
- *
- * Generated interface from Pigeon that represents a handler of messages from Flutter.
- */
+/** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface UwbHostApi {
-  /** Stops any ongoing UWB session. */
-  fun stopRanging(callback: (Result<Unit>) -> Unit)
-  /** Retrieves the local device's NIDiscoveryToken for sharing. (iOS only) */
-  fun getPeerDiscoveryToken(callback: (Result<ByteArray>) -> Unit)
-  /** Starts a peer-to-peer ranging session. (iOS only) */
-  fun startPeerRanging(token: ByteArray, callback: (Result<Unit>) -> Unit)
-  /** Retrieves the accessory's configuration data to be sent to a controller. */
-  fun getAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit)
-  /**
-   * Starts a ranging session as a Controller, using the accessory's data.
-   * Returns the shareable configuration data to be sent back to the accessory.
-   */
-  fun startControllerRanging(accessoryData: ByteArray, callback: (Result<ByteArray>) -> Unit)
-  /** Starts a ranging session as an Accessory, using the controller's shareable data. */
-  fun startAccessoryRanging(shareableData: ByteArray, callback: (Result<Unit>) -> Unit)
+  fun start(deviceName: String, serviceUUIDDigest: String, callback: (Result<Unit>) -> Unit)
+  fun stop(callback: (Result<Unit>) -> Unit)
+  fun startIosController(callback: (Result<ByteArray>) -> Unit)
+  fun startIosAccessory(token: ByteArray, callback: (Result<Unit>) -> Unit)
+  fun getAndroidAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit)
+  fun initializeAndroidController(accessoryConfigurationData: ByteArray, callback: (Result<ByteArray>) -> Unit)
+  fun startAndroidRanging(configData: ByteArray, isController: Boolean, callback: (Result<Unit>) -> Unit)
 
   companion object {
     /** The codec used by UwbHostApi. */
@@ -108,10 +95,13 @@ interface UwbHostApi {
     @Suppress("UNCHECKED_CAST")
     fun setUp(binaryMessenger: BinaryMessenger, api: UwbHostApi?) {
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.stopRanging", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.start", codec)
         if (api != null) {
-          channel.setMessageHandler { _, reply ->
-            api.stopRanging() { result: Result<Unit> ->
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val deviceNameArg = args[0] as String
+            val serviceUUIDDigestArg = args[1] as String
+            api.start(deviceNameArg, serviceUUIDDigestArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -125,10 +115,27 @@ interface UwbHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.getPeerDiscoveryToken", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.stop", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.getPeerDiscoveryToken() { result: Result<ByteArray> ->
+            api.stop() { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.startIosController", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.startIosController() { result: Result<ByteArray> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -143,12 +150,12 @@ interface UwbHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.startPeerRanging", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.startIosAccessory", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val tokenArg = args[0] as ByteArray
-            api.startPeerRanging(tokenArg) { result: Result<Unit> ->
+            api.startIosAccessory(tokenArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -162,10 +169,10 @@ interface UwbHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.getAccessoryConfigurationData", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.getAndroidAccessoryConfigurationData", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.getAccessoryConfigurationData() { result: Result<ByteArray> ->
+            api.getAndroidAccessoryConfigurationData() { result: Result<ByteArray> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -180,12 +187,12 @@ interface UwbHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.startControllerRanging", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.initializeAndroidController", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val accessoryDataArg = args[0] as ByteArray
-            api.startControllerRanging(accessoryDataArg) { result: Result<ByteArray> ->
+            val accessoryConfigurationDataArg = args[0] as ByteArray
+            api.initializeAndroidController(accessoryConfigurationDataArg) { result: Result<ByteArray> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -200,12 +207,13 @@ interface UwbHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.startAccessoryRanging", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.uwb.UwbHostApi.startAndroidRanging", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val shareableDataArg = args[0] as ByteArray
-            api.startAccessoryRanging(shareableDataArg) { result: Result<Unit> ->
+            val configDataArg = args[0] as ByteArray
+            val isControllerArg = args[1] as Boolean
+            api.startAndroidRanging(configDataArg, isControllerArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -244,11 +252,7 @@ private object UwbFlutterApiCodec : StandardMessageCodec() {
   }
 }
 
-/**
- * The API exposed by Dart to be called from the native platform.
- *
- * Generated class from Pigeon that represents Flutter messages that can be called from Kotlin.
- */
+/** Generated class from Pigeon that represents Flutter messages that can be called from Kotlin. */
 @Suppress("UNCHECKED_CAST")
 class UwbFlutterApi(private val binaryMessenger: BinaryMessenger) {
   companion object {
@@ -278,6 +282,54 @@ class UwbFlutterApi(private val binaryMessenger: BinaryMessenger) {
     val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(errorArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onBleDataReceived(dataArg: ByteArray, callback: (Result<Unit>) -> Unit)
+{
+    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onBleDataReceived"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(dataArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onPeerDiscovered(deviceNameArg: String, peerAddressArg: String, callback: (Result<Unit>) -> Unit)
+{
+    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDiscovered"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(deviceNameArg, peerAddressArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onPeerLost(deviceNameArg: String, peerAddressArg: String, callback: (Result<Unit>) -> Unit)
+{
+    val channelName = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerLost"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(deviceNameArg, peerAddressArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))

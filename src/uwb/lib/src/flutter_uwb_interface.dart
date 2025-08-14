@@ -1,82 +1,201 @@
 import 'dart:async';
-import 'package:flutter/services.dart';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import 'package:uwb/src/uwb.g.dart';
+import 'package:uwb/src/uwb_ble_manager.dart';
 
-/// Public-facing API for the UWB plugin.
-class FlutterUwb implements UwbFlutterApi {
-  /// Singleton instance of the API.
-  static final FlutterUwb _instance = FlutterUwb._internal();
+// --- Public Facing Data Class ---
 
-  factory FlutterUwb() {
-    return _instance;
+/// A public data class representing a nearby device, with fused BLE and UWB data.
+class UwbPeer {
+  final String peerAddress; // The BLE peripheral's UUID.
+  final String deviceName;
+  final String platform; // 'ios' or 'android'
+  final int rssi;
+  final double? distance;
+  final double? azimuth;
+  final double? elevation;
+
+  UwbPeer({
+    required this.peerAddress,
+    required this.deviceName,
+    required this.platform,
+    required this.rssi,
+    this.distance,
+    this.azimuth,
+    this.elevation,
+  });
+
+  UwbPeer copyWith({double? distance, double? azimuth, double? elevation}) {
+    return UwbPeer(
+      peerAddress: this.peerAddress,
+      deviceName: this.deviceName,
+      platform: this.platform,
+      rssi: this.rssi,
+      distance: distance ?? this.distance,
+      azimuth: azimuth ?? this.azimuth,
+      elevation: elevation ?? this.elevation,
+    );
   }
+}
+
+// --- Public Plugin Class ---
+class FlutterUwb implements UwbFlutterApi {
+  static final FlutterUwb _instance = FlutterUwb._internal();
+  factory FlutterUwb() => _instance;
 
   FlutterUwb._internal() {
-    // Set this class as the handler for native-to-Dart calls.
     UwbFlutterApi.setup(this);
   }
 
-  /// The host API for calling native UWB functions.
   final UwbHostApi _hostApi = UwbHostApi();
+  UwbBleManager? _bleManager;
+  StreamSubscription? _peerDiscoveredSubscription;
+  StreamSubscription? _peerLostSubscription;
+  StreamSubscription? _bleDataReceivedSubscription;
+  
+  String? _localDeviceName;
+  final Map<String, DiscoveredPeer> _activePeers = {};
 
-  /// Stream controller for ranging results.
-  final StreamController<RangingResult> _rangingResultController =
-      StreamController.broadcast();
+  final _peersController = StreamController<UwbPeer>.broadcast();
+  final _rangingErrorController = StreamController<String>.broadcast();
 
-  /// Stream controller for ranging errors.
-  final StreamController<String> _rangingErrorController =
-      StreamController.broadcast();
+  Stream<UwbPeer> get peerStream => _peersController.stream;
+  Stream<String> get rangingErrorStream => _rangingErrorController.stream;
 
-  /// A stream of ranging results from the native UWB session.
-  /// Listen to this stream to get distance and angle updates for a peer.
-  Stream<RangingResult> get rangingResultsStream =>
-      _rangingResultController.stream;
+  Future<void> start(String deviceName, String serviceUUIDDigest) async {
+    await stop(); 
+    _localDeviceName = deviceName;
+    
+    const uuid = Uuid();
+    final serviceUuid = uuid.v5(Uuid.NAMESPACE_URL, '$serviceUUIDDigest-service');
+    final handshakeUuid = uuid.v5(Uuid.NAMESPACE_URL, '$serviceUUIDDigest-handshake');
+    final platformUuid = uuid.v5(Uuid.NAMESPACE_URL, '$serviceUUIDDigest-platform');
 
-  /// A stream of errors from the native UWB session.
-  Stream<String> get rangingErrorStream =>
-      _rangingErrorController.stream;
-
-  /// Called by the device acting as a Controller.
-  /// Takes the configuration data from an accessory, initializes the native session,
-  /// and returns the shareable configuration data to be sent back to the accessory.
-  Future<Uint8List> initializeController(Uint8List accessoryConfigurationData) {
-    return _hostApi.initializeController(accessoryConfigurationData);
+    _bleManager = UwbBleManager(
+      serviceUuid: serviceUuid,
+      handshakeCharacteristicUuid: handshakeUuid,
+      platformCharacteristicUuid: platformUuid,
+      deviceName: deviceName,
+    );
+    
+    _peerDiscoveredSubscription = _bleManager!.peerDiscoveredStream.listen(_handlePeerDiscovered);
+    _peerLostSubscription = _bleManager!.peerLostStream.listen(_handlePeerLost);
+    _bleDataReceivedSubscription = _bleManager!.bleDataReceivedStream.listen(_handleBleDataReceived);
+    
+    await _bleManager!.start();
+    await _hostApi.start(deviceName, serviceUUIDDigest);
   }
 
-  /// Called by the device acting as an Accessory.
-  /// Returns its own configuration data to be sent to the Controller.
-  Future<Uint8List> getAccessoryConfigurationData() {
-    return _hostApi.getAccessoryConfigurationData();
+  Future<void> stop() async {
+    _localDeviceName = null;
+    await _peerDiscoveredSubscription?.cancel();
+    await _peerLostSubscription?.cancel();
+    await _bleDataReceivedSubscription?.cancel();
+    _bleManager?.dispose();
+    _bleManager = null;
+    _activePeers.clear();
+    await _hostApi.stop();
+  }
+  
+  void _handlePeerDiscovered(DiscoveredPeer peer) {
+    _activePeers[peer.peripheral.uuid.toString()] = peer;
+    _peersController.add(UwbPeer(
+      peerAddress: peer.peripheral.uuid.toString(),
+      deviceName: peer.deviceName,
+      platform: peer.platform,
+      rssi: peer.rssi,
+    ));
+    _initiateHandshake(peer);
+  }
+  
+  void _handlePeerLost(DiscoveredPeer peer) {
+    _activePeers.remove(peer.peripheral.uuid.toString());
   }
 
-  /// Starts the UWB ranging session after the OOB handshake is complete.
-  ///
-  /// [configData]: The final configuration data (the Shareable Config Data from the Controller).
-  /// [isController]: Must be `true` if this device is the Controller, `false` if it's the Accessory.
-  Future<void> startRanging(Uint8List configData, {required bool isController}) {
-    return _hostApi.startRanging(configData, isController);
+  Future<void> _initiateHandshake(DiscoveredPeer peer) async {
+    final localDeviceName = _localDeviceName;
+    if (localDeviceName == null) return;
+    
+    try {
+      bool isController = false;
+      if (Platform.isIOS && peer.platform == 'android') {
+        isController = true;
+      } else if (Platform.isAndroid && peer.platform == 'ios') {
+        isController = false;
+      } else if (localDeviceName.compareTo(peer.deviceName) < 0) {
+        isController = true;
+      }
+
+      if (isController) {
+        if (Platform.isIOS) {
+          final token = await _hostApi.startIosController();
+          await _bleManager!.sendHandshakeData(peer.peripheral, token);
+        } else {
+          final accessoryConfigData = await _hostApi.getAndroidAccessoryConfigurationData();
+          final shareableConfigData = await _hostApi.initializeAndroidController(accessoryConfigData);
+          await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfigData);
+          await _hostApi.startAndroidRanging(shareableConfigData, true);
+        }
+      }
+    } catch (e) {
+      _rangingErrorController.add("Error during handshake initiation: $e");
+    }
   }
 
-  /// Stops the current UWB ranging session.
-  Future<void> stopRanging() {
-    return _hostApi.stopRanging();
-  }
+  Future<void> _handleBleDataReceived(BleDataReceived event) async {
+    final peer = _activePeers[event.peripheral.uuid.toString()];
+    if (peer == null) return;
 
-  // --- Callback handlers for UwbFlutterApi ---
+    try {
+      if (Platform.isIOS && peer.platform == 'ios') {
+        await _hostApi.startIosAccessory(event.data);
+      } else if (Platform.isIOS && peer.platform == 'android') {
+        final shareableConfig = await _hostApi.initializeAndroidController(event.data);
+        await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfig);
+        await _hostApi.startAndroidRanging(shareableConfig, true);
+      } else if (Platform.isAndroid) {
+        await _hostApi.startAndroidRanging(event.data, false);
+      }
+    } catch (e) {
+      _rangingErrorController.add("Error handling received BLE data: $e");
+    }
+  }
 
   @override
   void onRangingResult(RangingResult result) {
-    _rangingResultController.add(result);
+    final peerKey = _activePeers.keys.firstWhere((k) => _activePeers[k]!.deviceName == result.deviceName, orElse: () => '');
+    if (peerKey.isNotEmpty) {
+      final peer = _activePeers[peerKey]!;
+      final updatedPeer = UwbPeer(
+        peerAddress: peer.peripheral.uuid.toString(),
+        deviceName: peer.deviceName,
+        platform: peer.platform,
+        rssi: peer.rssi,
+        distance: result.distance,
+        azimuth: result.azimuth,
+        elevation: result.elevation,
+      );
+      _peersController.add(updatedPeer);
+    }
   }
 
   @override
   void onRangingError(String error) {
     _rangingErrorController.add(error);
   }
-
-  /// Disposes of the stream controllers.
+  
+  @override
+  void onBleDataReceived(Uint8List data) {}
+  @override
+  void onPeerDiscovered(String deviceName, String peerAddress) {}
+  @override
+  void onPeerLost(String deviceName, String peerAddress) {}
+  
   void dispose() {
-    _rangingResultController.close();
+    _peersController.close();
     _rangingErrorController.close();
+    stop();
   }
 }

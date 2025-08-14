@@ -3,34 +3,34 @@ import UIKit
 import NearbyInteraction
 import os
 
-// This extension of Error is required to do use FlutterError in any Swift code.
 extension FlutterError: Error {}
 
-public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
-    
-    // MARK: - Properties
+public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     
     static var flutterApi: UwbFlutterApi?
     private var niSession: NISession?
     private let logger = os.Logger(subsystem: "com.autheet.uwb", category: "UwbPlugin")
     
-    // MARK: - UwbHostApi Implementation
-    
-    func isSupported(completion: @escaping (Result<Bool, Error>) -> Void) {
-        completion(.success(NISession.isSupported))
+    public func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        if niSession == nil {
+            niSession = NISession()
+            niSession?.delegate = self
+        }
+        completion(.success(()))
     }
-    
-    func getLocalEndpoint(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        // Always create a new session for the local endpoint, as the session may not have started yet.
-        let session = NISession()
-        session.delegate = self
-        self.niSession = session
-        
-        guard let token = session.discoveryToken else {
+
+    public func stop(completion: @escaping (Result<Void, Error>) -> Void) {
+        niSession?.invalidate()
+        niSession = nil
+        completion(.success(()))
+    }
+
+    public func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+        guard let session = niSession, let token = session.discoveryToken else {
             completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to get discovery token.", details: nil)))
             return
         }
-        
+
         do {
             let data = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
             completion(.success(FlutterStandardTypedData(bytes: data)))
@@ -39,78 +39,65 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
         }
     }
     
-    func startRanging(peerEndpoint: FlutterStandardTypedData, isController: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+    public func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let session = niSession else {
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "NISession not initialized.", details: nil)))
+            return
+        }
+
         do {
-            guard let token = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: peerEndpoint.data) else {
-                throw FlutterError(code: "UWB_ERROR", message: "Invalid peer endpoint data.", details: nil)
+            guard let discoveryToken = try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: token.data) else {
+                throw FlutterError(code: "UWB_ERROR", message: "Invalid discovery token data.", details: nil)
             }
-            let config = NINearbyPeerConfiguration(peerToken: token)
-            niSession?.run(config)
+            let config = NINearbyPeerConfiguration(peerToken: discoveryToken)
+            session.run(config)
             completion(.success(()))
         } catch {
-            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to start ranging.", details: error.localizedDescription)))
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to start accessory ranging.", details: error.localizedDescription)))
         }
     }
-    
-    func stopRanging(completion: @escaping (Result<Void, Error>) -> Void) {
-        niSession?.invalidate()
-        niSession = nil
-        completion(.success(()))
-    }
-    
-    func closeSession(completion: @escaping (Result<Void, Error>) -> Void) {
-        niSession?.invalidate()
-        niSession = nil
-        completion(.success(()))
-    }
-    
-    // MARK: - NISessionDelegate Implementation
-    
-    public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
-        guard let nearbyObject = nearbyObjects.first else { return }
-        
-        let rangingData = UwbRangingData(
-            distance: nearbyObject.distance,
-            azimuth: nearbyObject.direction?.x,
-            elevation: nearbyObject.direction?.y
-        )
-        let device = UwbRangingDevice(
-            id: nearbyObject.discoveryToken.description,
-            state: .ranging,
-            data: rangingData
-        )
-        UwbPlugin.flutterApi?.onRangingResult(device: device) { _ in }
-    }
-    
-    public func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
-        guard let nearbyObject = nearbyObjects.first else { return }
-        
-        let device = UwbRangingDevice(
-            id: nearbyObject.discoveryToken.description,
-            state: .lost,
-            data: nil
-        )
-        UwbPlugin.flutterApi?.onRangingResult(device: device) { _ in }
-    }
-    
-    public func session(_ session: NISession, didInvalidateWith error: Error) {
-        UwbPlugin.flutterApi?.onRangingError(error: error.localizedDescription) { _ in }
-    }
 
-    public func session(_ session: NISession, didGenerateShareableConfigurationData data: Data, for object: NINearbyObject) {
-         // This is not directly used in our new architecture, as the token exchange happens before ranging starts.
-         // However, we can use this to send updated configuration data if needed.
-        let peerId = object.discoveryToken.description
-        UwbPlugin.flutterApi?.onShareableConfigurationData(data: FlutterStandardTypedData(bytes: data), peerId: peerId) { _ in }
+    // --- Android Placeholders ---
+    public func getAndroidAccessoryConfigurationData(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+        completion(.failure(FlutterError(code: "UNSUPPORTED", message: "This method is for Android only.", details: nil)))
     }
     
-    // MARK: - FlutterPlugin Registration
+    public func initializeAndroidController(accessoryConfigurationData: FlutterStandardTypedData, completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+        completion(.failure(FlutterError(code: "UNSUPPORTED", message: "This method is for Android only.", details: nil)))
+    }
+    
+    public func startAndroidRanging(configData: FlutterStandardTypedData, isController: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterError(code: "UNSUPPORTED", message: "This method is for Android only.", details: nil)))
+    }
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger = registrar.messenger()
         let api: UwbHostApi = UwbPlugin()
         UwbHostApi.setUp(binaryMessenger: messenger, api: api)
-        
         flutterApi = UwbFlutterApi(binaryMessenger: messenger)
+    }
+}
+
+extension UwbPlugin: NISessionDelegate {
+    public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
+        guard let nearbyObject = nearbyObjects.first else { return }
+        
+        // Extract both azimuth (x) and elevation (y) from the direction vector.
+        let azimuth = nearbyObject.direction.map { Double($0.x) }
+        let elevation = nearbyObject.direction.map { Double($0.y) }
+        
+        let result = RangingResult(
+            peerAddress: nearbyObject.discoveryToken.description, 
+            deviceName: "", // Device name is now handled exclusively in the Dart layer.
+            distance: nearbyObject.distance, 
+            azimuth: azimuth,
+            elevation: elevation
+        )
+        
+        UwbPlugin.flutterApi?.onRangingResult(result: result) { _ in }
+    }
+    
+    public func session(_ session: NISession, didInvalidateWith error: Error) {
+        UwbPlugin.flutterApi?.onRangingError(error: error.localizedDescription) { _ in }
     }
 }
