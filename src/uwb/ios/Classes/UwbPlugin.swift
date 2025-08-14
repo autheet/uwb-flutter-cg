@@ -52,10 +52,13 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     }
 
     public func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        guard let token = niSession?.discoveryToken else {
+        guard let discoveryToken = niSession?.discoveryToken else {
             return completion(.failure(FlutterError(code: "uwb", message: "Missing discovery token", details: nil)))
         }
-        completion(.success(token.toFlutterStandardTypedData()))
+        guard let tokenData = discoveryToken.toFlutterStandardTypedData() else {
+            return completion(.failure(FlutterError(code: "uwb", message: "Failed to convert discovery token to data", details: nil)))
+        }
+        completion(.success(tokenData))
     }
 
     public func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -83,8 +86,11 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     
     public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         for object in nearbyObjects {
+            guard let tokenData = object.discoveryToken.toFlutterStandardTypedData() else {
+                continue
+            }
             let result = RangingResult(
-                peerAddress: object.discoveryToken.toFlutterStandardTypedData().data.toHexString(),
+                peerAddress: tokenData.data.toHexString(),
                 deviceName: "",
                 distance: Double(object.distance ?? 0),
                 azimuth: Double(object.direction?.x ?? 0),
@@ -96,7 +102,10 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     
     public func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
         for object in nearbyObjects {
-            flutterApi?.onPeerLost(deviceName: "", peerAddress: object.discoveryToken.toFlutterStandardTypedData().data.toHexString(), completion: { _ in })
+            guard let tokenData = object.discoveryToken.toFlutterStandardTypedData() else {
+                continue
+            }
+            flutterApi?.onPeerLost(deviceName: "", peerAddress: tokenData.data.toHexString(), completion: { _ in })
         }
     }
     
@@ -156,12 +165,23 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
 }
 
 extension NIDiscoveryToken {
-    func toFlutterStandardTypedData() -> FlutterStandardTypedData {
-        return FlutterStandardTypedData(bytes: self.toData())
+    func toFlutterStandardTypedData() -> FlutterStandardTypedData? {
+        do {
+            let data = try NSKeyedArchiver.archivedData(withRootObject: self, requiringSecureCoding: true)
+            return FlutterStandardTypedData(bytes: data)
+        } catch {
+            print("UwbPlugin: Failed to archive discovery token: \(error)")
+            return nil
+        }
     }
     
     static func fromFlutterStandardTypedData(_ data: FlutterStandardTypedData) -> NIDiscoveryToken? {
-        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: data.data)
+        do {
+            return try NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: data.data)
+        } catch {
+            print("UwbPlugin: Failed to unarchive discovery token: \(error)")
+            return nil
+        }
     }
 }
 
