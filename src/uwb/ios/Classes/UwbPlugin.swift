@@ -73,6 +73,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger = registrar.messenger()
         let api: UwbHostApi = UwbPlugin()
+        // Corrected setUp syntax
         UwbHostApi.setUp(binaryMessenger: messenger, api: api)
         flutterApi = UwbFlutterApi(binaryMessenger: messenger)
     }
@@ -82,14 +83,14 @@ extension UwbPlugin: NISessionDelegate {
     public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         guard let nearbyObject = nearbyObjects.first else { return }
         
-        // Extract both azimuth (x) and elevation (y) from the direction vector.
+        // Correctly cast Float? to Double?
         let azimuth = nearbyObject.direction.map { Double($0.x) }
         let elevation = nearbyObject.direction.map { Double($0.y) }
         
         let result = RangingResult(
             peerAddress: nearbyObject.discoveryToken.description, 
-            deviceName: "", // Device name is now handled exclusively in the Dart layer.
-            distance: nearbyObject.distance, 
+            deviceName: "", 
+            distance: nearbyObject.distance.map { Double($0) }, 
             azimuth: azimuth,
             elevation: elevation
         )
