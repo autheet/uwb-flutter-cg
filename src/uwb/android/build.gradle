@@ -25,10 +25,9 @@ apply plugin: 'kotlin-android'
 
 android {
     namespace "net.christiangreiner.uwb"
-    compileSdkVersion 35 // Standardized to 35 for consistency
+    compileSdkVersion 35
 
     compileOptions {
-        // UWB library requires Java 8 language features.
         coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -42,22 +41,18 @@ android {
         main.java.srcDirs += 'src/main/kotlin'
     }
 
+    // **FIX:** Added defaultConfig to set the minimum required SDK version for UWB.
     defaultConfig {
-        minSdkVersion 21
+        minSdkVersion 32
     }
 }
 
 dependencies {
-    // Required for desugaring
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
-
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
     implementation 'io.reactivex.rxjava3:rxandroid:3.0.2'
-
-
-    // Use the latest UWB libraries from AndroidX Jetpack.
     implementation "androidx.core.uwb:uwb:1.0.0-alpha10"
     implementation "androidx.core.uwb:uwb-rxjava3:1.0.0-alpha10"
 }

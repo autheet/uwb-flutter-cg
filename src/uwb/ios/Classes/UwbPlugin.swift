@@ -11,6 +11,8 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     private var niSession: NISession?
     private let logger = os.Logger(subsystem: "com.autheet.uwb", category: "UwbPlugin")
     
+    // ... (All other methods remain the same) ...
+
     public func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void) {
         if niSession == nil {
             niSession = NISession()
@@ -70,10 +72,11 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
         completion(.failure(FlutterError(code: "UNSUPPORTED", message: "This method is for Android only.", details: nil)))
     }
     
+    // --- Registration ---
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger = registrar.messenger()
         let api: UwbHostApi = UwbPlugin()
-        // Corrected setUp syntax for modern Pigeon
+        // **FIXED:** Use the correct static setUp method from the generated class.
         UwbHostApi.setUp(binaryMessenger: messenger, api: api)
         flutterApi = UwbFlutterApi(binaryMessenger: messenger)
     }
@@ -83,7 +86,6 @@ extension UwbPlugin: NISessionDelegate {
     public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         guard let nearbyObject = nearbyObjects.first else { return }
         
-        // Correctly cast Float? to Double?
         let azimuth = nearbyObject.direction.map { Double($0.x) }
         let elevation = nearbyObject.direction.map { Double($0.y) }
         let distance = nearbyObject.distance.map { Double($0) }

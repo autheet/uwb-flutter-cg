@@ -44,9 +44,13 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     override fun stop(callback: (Result<Unit>) -> Unit) {
         scope.launch {
-            uwbConnectionManager?.stopRanging()
-            uwbConnectionManager = null
-            callback(Result.success(Unit))
+            try {
+                uwbConnectionManager?.stopRanging()
+                uwbConnectionManager = null
+                callback(Result.success(Unit))
+            } catch (e: Exception) {
+                callback(Result.failure(e))
+            }
         }
     }
 
