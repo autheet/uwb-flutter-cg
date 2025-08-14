@@ -28,7 +28,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private fun getRangingManager(client: UwbClient): UwbConnectionManager {
         return UwbConnectionManager(
-            context = appContext!!,
             uwbClient = client,
             onRangingResult = { result ->
                 flutterApi?.onRangingResult(result) {}
@@ -45,13 +44,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     override fun stop(callback: (Result<Unit>) -> Unit) {
         scope.launch {
-            try {
-                uwbConnectionManager?.stopRanging()
-                uwbConnectionManager = null
-                callback(Result.success(Unit))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
+            uwbConnectionManager?.stopRanging()
+            uwbConnectionManager = null
+            callback(Result.success(Unit))
         }
     }
 
@@ -89,7 +84,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
                     val client = UwbClient.getAccessoryClient(context)
                     uwbConnectionManager = getRangingManager(client)
                 }
-                uwbConnectionManager!!.startRanging(configData, isController)
+                uwbConnectionManager?.startRanging(configData, isController)
                 callback(Result.success(Unit))
             } catch (e: Exception) {
                 callback(Result.failure(e))
