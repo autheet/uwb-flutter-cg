@@ -25,7 +25,7 @@ apply plugin: 'kotlin-android'
 
 android {
     namespace "net.christiangreiner.uwb"
-    compileSdkVersion 34 // UWB requires at least SDK 34
+    compileSdkVersion 35 // Standardized to 35 for consistency
 
     compileOptions {
         // UWB library requires Java 8 language features.

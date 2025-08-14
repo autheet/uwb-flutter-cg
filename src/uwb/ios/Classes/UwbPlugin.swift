@@ -73,7 +73,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger = registrar.messenger()
         let api: UwbHostApi = UwbPlugin()
-        // Corrected setUp syntax
+        // Corrected setUp syntax for modern Pigeon
         UwbHostApi.setUp(binaryMessenger: messenger, api: api)
         flutterApi = UwbFlutterApi(binaryMessenger: messenger)
     }
@@ -86,11 +86,12 @@ extension UwbPlugin: NISessionDelegate {
         // Correctly cast Float? to Double?
         let azimuth = nearbyObject.direction.map { Double($0.x) }
         let elevation = nearbyObject.direction.map { Double($0.y) }
+        let distance = nearbyObject.distance.map { Double($0) }
         
         let result = RangingResult(
             peerAddress: nearbyObject.discoveryToken.description, 
             deviceName: "", 
-            distance: nearbyObject.distance.map { Double($0) }, 
+            distance: distance, 
             azimuth: azimuth,
             elevation: elevation
         )
