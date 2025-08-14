@@ -42,7 +42,7 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 26
+        minSdkVersion 31 // Corrected to meet UWB library requirements
     }
 }
 
