@@ -67,7 +67,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
         scope.launch {
             try {
-                // This is the correct way to set up the device as an "Accessory" or "Controlee"
+                // Correctly use controleeSessionScope for the accessory role
                 val sessionScope = manager.controleeSessionScope()
                 clientSessionScope = sessionScope
                 callback(Result.success(sessionScope.localAddress.address))
@@ -81,28 +81,28 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
         scope.launch {
             try {
-                // This is the correct way to set up the device as a "Controller"
                 val sessionScope = manager.controllerSessionScope()
                 clientSessionScope = sessionScope
                 
                 val accessoryAddress = UwbAddress(accessoryConfigurationData)
                 val rangingParameters = RangingParameters(
-                    uwbConfigType = RangingParameters.UWB_CONFIG_ID_1,
+                    uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
                     sessionId = sessionId.toInt(),
+                    subSessionId = 0,
                     sessionKeyInfo = sessionKeyInfo,
+                    subSessionKeyInfo = null,
                     complexChannel = null,
-                    peerDevices = listOf(UwbDevice.createForAddress(accessoryAddress)),
-                    updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
+                    peerDevices = listOf(UwbDevice.createForAddress(accessoryAddress.address)),
+                    updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
+                    uwbRangeDataNtfConfig = null, 
+                    slotDurationMillis = RangingParameters.RANGING_SLOT_DURATION_2_MILLIS, 
+                    isAoaDisabled = false 
                 )
 
-                // Start the session and listen for results.
                 val sessionFlow = sessionScope.prepareSession(rangingParameters)
                 rangingJob?.cancel()
-                rangingJob = sessionFlow.onEach {
-                    handleRangingResult(it)
-                }.launchIn(scope)
+                rangingJob = sessionFlow.onEach { handleRangingResult(it) }.launchIn(scope)
                 
-                // Return the local address of this controller to be sent back to the accessory.
                 callback(Result.success(sessionScope.localAddress.address))
             } catch (e: Exception) {
                 callback(Result.failure(e))
@@ -116,12 +116,17 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
             try {
                 val peerAddress = UwbAddress(configData)
                 val rangingParameters = RangingParameters(
-                    uwbConfigType = RangingParameters.UWB_CONFIG_ID_1,
+                    uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
                     sessionId = sessionId.toInt(),
+                    subSessionId = 0,
                     sessionKeyInfo = sessionKeyInfo,
+                    subSessionKeyInfo = null,
                     complexChannel = null,
-                    peerDevices = listOf(UwbDevice.createForAddress(peerAddress)),
-                    updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
+                    peerDevices = listOf(UwbDevice.createForAddress(peerAddress.address)),
+                    updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
+                    uwbRangeDataNtfConfig = null, 
+                    slotDurationMillis = RangingParameters.RANGING_SLOT_DURATION_2_MILLIS, 
+                    isAoaDisabled = false 
                 )
 
                 rangingJob?.cancel()
@@ -138,20 +143,17 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     private fun handleRangingResult(result: RangingResult) {
         when (result) {
             is RangingResult.RangingResultPosition -> {
-                val position = result.position
                 val pigeonResult = PigeonRangingResult(
-                    // Correctly access the uwbDevice property
-                    peerAddress = position.device.address.toString(),
-                    deviceName = "", // Device name is not available in the ranging result
-                    // Correctly handle nullable RangingMeasurement values
-                    distance = position.distance?.value?.toDouble(),
-                    azimuth = position.azimuth?.value?.toDouble(),
-                    elevation = position.elevation?.value?.toDouble()
+                    peerAddress = result.device.address.toString(),
+                    deviceName = "", 
+                    distance = result.position.distance?.value?.toDouble(),
+                    azimuth = result.position.azimuth?.value?.toDouble(),
+                    elevation = result.position.elevation?.value?.toDouble()
                 )
                 flutterApi?.onRangingResult(pigeonResult) {}
             }
             is RangingResult.RangingResultPeerDisconnected -> {
-                // You can notify Flutter about the disconnection here if needed
+                // Handle peer disconnection
             }
         }
     }
