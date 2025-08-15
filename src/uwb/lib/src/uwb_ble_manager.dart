@@ -88,6 +88,8 @@ class UwbBleManager {
           print("[UWB BLE MANAGER] BLE powered on. Starting operations.");
           if (Platform.isAndroid) {
             _peripheralManager = PeripheralManager();
+            // Add a short delay to allow the Android Bluetooth stack to fully initialize.
+            await Future.delayed(const Duration(milliseconds: 500));
           }
           await _startAdvertising();
           await _startDiscovery();
