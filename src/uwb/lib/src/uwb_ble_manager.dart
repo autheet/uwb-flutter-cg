@@ -79,19 +79,31 @@ class UwbBleManager {
   }
 
   Future<void> _handleState(BluetoothLowEnergyState state) async {
-    if (state == BluetoothLowEnergyState.poweredOn && !_isActive) {
-      _isActive = true;
-      // Re-initialize both managers for a clean state, especially after hot restarts on Android.
-      _centralManager = CentralManager();
-      _peripheralManager = PeripheralManager();
-      _listenToStateChanges();
-      
-      await _startAdvertising();
-      await _startDiscovery();
-    } else if (state != BluetoothLowEnergyState.poweredOn) {
-      _isActive = false;
-      await _stopAdvertising();
-      await _stopDiscovery();
+    debugPrint("[UWB BLE MANAGER] State changed: $state");
+    switch (state) {
+      case BluetoothLowEnergyState.poweredOn:
+        if (!_isActive) {
+          _isActive = true;
+          debugPrint("[UWB BLE MANAGER] BLE powered on. Starting operations.");
+          if (Platform.isAndroid) {
+            _peripheralManager = PeripheralManager();
+          }
+          await _startAdvertising();
+          await _startDiscovery();
+        }
+        break;
+      case BluetoothLowEnergyState.unauthorized:
+        debugPrint("[UWB BLE MANAGER] BLE unauthorized. Requesting authorization.");
+        await _centralManager.authorize();
+        break;
+      default:
+        if (_isActive) {
+          debugPrint("[UWB BLE MANAGER] BLE state is $state. Stopping operations.");
+          _isActive = false;
+          await _stopAdvertising();
+          await _stopDiscovery();
+        }
+        break;
     }
   }
 
