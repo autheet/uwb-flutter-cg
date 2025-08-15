@@ -133,12 +133,12 @@ func deepHashUwb(value: Any?, hasher: inout Hasher) {
     
 
 /// Generated class from Pigeon that represents data sent in messages.
-struct RangingResult: Hashable {
-  var peerAddress: String
-  var deviceName: String
-  var distance: Double? = nil
-  var azimuth: Double? = nil
-  var elevation: Double? = nil
+public struct RangingResult: Hashable {
+  public var peerAddress: String
+  public var deviceName: String
+  public var distance: Double? = nil
+  public var azimuth: Double? = nil
+  public var elevation: Double? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -166,9 +166,10 @@ struct RangingResult: Hashable {
       elevation,
     ]
   }
-  static func == (lhs: RangingResult, rhs: RangingResult) -> Bool {
-    return deepEqualsUwb(lhs.toList(), rhs.toList())  }
-  func hash(into hasher: inout Hasher) {
+  public static func == (lhs: RangingResult, rhs: RangingResult) -> Bool {
+    return deepEqualsUwb(lhs.toList(), rhs.toList())
+  }
+  public func hash(into hasher: inout Hasher) {
     deepHashUwb(value: toList(), hasher: &hasher)
   }
 }
@@ -178,19 +179,19 @@ struct RangingResult: Hashable {
 /// are using the exact same settings for the ranging session.
 ///
 /// Generated class from Pigeon that represents data sent in messages.
-struct UwbConfig: Hashable {
+public struct UwbConfig: Hashable {
   /// Corresponds to RangingParameters.UwbConfigId (e.g., CONFIG_UNICAST_DS_TWR).
-  var uwbConfigId: Int64
+  public var uwbConfigId: Int64
   /// The session ID for the ranging interaction.
-  var sessionId: Int64
+  public var sessionId: Int64
   /// The session key for securing the ranging data.
-  var sessionKeyInfo: FlutterStandardTypedData
+  public var sessionKeyInfo: FlutterStandardTypedData
   /// The UWB channel to be used.
-  var channel: Int64
+  public var channel: Int64
   /// The preamble index for the UWB signal.
-  var preambleIndex: Int64
+  public var preambleIndex: Int64
   /// The UWB address of the peer device (the one not generating this config).
-  var peerAddress: FlutterStandardTypedData
+  public var peerAddress: FlutterStandardTypedData
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -221,9 +222,10 @@ struct UwbConfig: Hashable {
       peerAddress,
     ]
   }
-  static func == (lhs: UwbConfig, rhs: UwbConfig) -> Bool {
-    return deepEqualsUwb(lhs.toList(), rhs.toList())  }
-  func hash(into hasher: inout Hasher) {
+  public static func == (lhs: UwbConfig, rhs: UwbConfig) -> Bool {
+    return deepEqualsUwb(lhs.toList(), rhs.toList())
+  }
+  public func hash(into hasher: inout Hasher) {
     deepHashUwb(value: toList(), hasher: &hasher)
   }
 }
@@ -271,7 +273,7 @@ class UwbPigeonCodec: FlutterStandardMessageCodec, @unchecked Sendable {
 
 
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
-protocol UwbHostApi {
+public protocol UwbHostApi {
   func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void)
   func stop(completion: @escaping (Result<Void, Error>) -> Void)
   func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
@@ -406,24 +408,24 @@ class UwbHostApiSetup {
   }
 }
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
-protocol UwbFlutterApiProtocol {
+public protocol UwbFlutterApiProtocol {
   func onRangingResult(result resultArg: RangingResult, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onRangingError(error errorArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onBleDataReceived(data dataArg: FlutterStandardTypedData, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onPeerDiscovered(deviceName deviceNameArg: String, peerAddress peerAddressArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onPeerLost(deviceName deviceNameArg: String, peerAddress peerAddressArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void)
 }
-class UwbFlutterApi: UwbFlutterApiProtocol {
+public class UwbFlutterApi: UwbFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
   private let messageChannelSuffix: String
-  init(binaryMessenger: FlutterBinaryMessenger, messageChannelSuffix: String = "") {
+  public init(binaryMessenger: FlutterBinaryMessenger, messageChannelSuffix: String = "") {
     self.binaryMessenger = binaryMessenger
     self.messageChannelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
   }
-  var codec: UwbPigeonCodec {
+  public var codec: UwbPigeonCodec {
     return UwbPigeonCodec.shared
   }
-  func onRangingResult(result resultArg: RangingResult, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  public func onRangingResult(result resultArg: RangingResult, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingResult\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([resultArg] as [Any?]) { response in
@@ -441,7 +443,7 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
       }
     }
   }
-  func onRangingError(error errorArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  public func onRangingError(error errorArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onRangingError\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([errorArg] as [Any?]) { response in
@@ -459,7 +461,7 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
       }
     }
   }
-  func onBleDataReceived(data dataArg: FlutterStandardTypedData, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  public func onBleDataReceived(data dataArg: FlutterStandardTypedData, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onBleDataReceived\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([dataArg] as [Any?]) { response in
@@ -477,7 +479,7 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
       }
     }
   }
-  func onPeerDiscovered(deviceName deviceNameArg: String, peerAddress peerAddressArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  public func onPeerDiscovered(deviceName deviceNameArg: String, peerAddress peerAddressArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerDiscovered\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([deviceNameArg, peerAddressArg] as [Any?]) { response in
@@ -495,7 +497,7 @@ class UwbFlutterApi: UwbFlutterApiProtocol {
       }
     }
   }
-  func onPeerLost(deviceName deviceNameArg: String, peerAddress peerAddressArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  public func onPeerLost(deviceName deviceNameArg: String, peerAddress peerAddressArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.uwb.UwbFlutterApi.onPeerLost\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([deviceNameArg, peerAddressArg] as [Any?]) { response in
