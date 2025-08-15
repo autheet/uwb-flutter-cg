@@ -130,12 +130,18 @@ class FlutterUwb implements UwbFlutterApi {
 
       if (isController) {
         if (Platform.isIOS) {
+          debugPrint("iOS device is controller. Getting token from native.");
           final token = await _hostApi.startIosController();
+          debugPrint("Sending iOS token to BLE manager.");
           await _bleManager!.sendHandshakeData(peer.peripheral, token);
         } else {
+          debugPrint("Android device is controller. Getting accessory config data.");
           final accessoryConfigData = await _hostApi.getAndroidAccessoryConfigurationData();
+          debugPrint("Initializing Android controller with accessory config.");
           final shareableConfigData = await _hostApi.initializeAndroidController(accessoryConfigData);
+          debugPrint("Sending shareable config data to BLE manager.");
           await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfigData);
+          debugPrint("Starting Android ranging as controller.");
           await _hostApi.startAndroidRanging(shareableConfigData, true);
         }
       }
@@ -150,12 +156,17 @@ class FlutterUwb implements UwbFlutterApi {
 
     try {
       if (Platform.isIOS && peer.platform == 'ios') {
+        debugPrint("iOS received token from iOS peer. Passing to native to start accessory mode.");
         await _hostApi.startIosAccessory(event.data);
       } else if (Platform.isIOS && peer.platform == 'android') {
+        debugPrint("iOS received accessory config from Android. Passing to native to initialize controller.");
         final shareableConfig = await _hostApi.initializeAndroidController(event.data);
+        debugPrint("iOS received shareable config from native. Sending back to Android peer via BLE.");
         await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfig);
+        debugPrint("iOS starting ranging with Android peer.");
         await _hostApi.startAndroidRanging(shareableConfig, true);
       } else if (Platform.isAndroid) {
+        debugPrint("Android received config data from peer. Passing to native to start ranging.");
         await _hostApi.startAndroidRanging(event.data, false);
       }
     } catch (e) {
