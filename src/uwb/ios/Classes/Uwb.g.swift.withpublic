@@ -12,18 +12,18 @@ import Foundation
 #endif
 
 /// Error class for passing custom error details to Dart side.
-public final class PigeonError: Error {
-  public let code: String
-  public let message: String?
-  public let details: Sendable?
+final class PigeonError: Error {
+  let code: String
+  let message: String?
+  let details: Sendable?
 
-  public init(code: String, message: String?, details: Sendable?) {
+  init(code: String, message: String?, details: Sendable?) {
     self.code = code
     self.message = message
     self.details = details
   }
 
-  public var localizedDescription: String {
+  var localizedDescription: String {
     return
       "PigeonError(code: \(code), message: \(message ?? "<nil>"), details: \(details ?? "<nil>")"
   }
