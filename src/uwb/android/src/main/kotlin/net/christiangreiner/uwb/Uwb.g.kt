@@ -84,8 +84,8 @@ interface UwbHostApi {
   fun startIosController(callback: (Result<ByteArray>) -> Unit)
   fun startIosAccessory(token: ByteArray, callback: (Result<Unit>) -> Unit)
   fun getAndroidAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit)
-  fun initializeAndroidController(accessoryConfigurationData: ByteArray, callback: (Result<ByteArray>) -> Unit)
-  fun startAndroidRanging(configData: ByteArray, isController: Boolean, callback: (Result<Unit>) -> Unit)
+  fun initializeAndroidController(accessoryConfigurationData: ByteArray, sessionKeyInfo: ByteArray, sessionId: Long, callback: (Result<ByteArray>) -> Unit)
+  fun startAndroidRanging(configData: ByteArray, isController: Boolean, sessionKeyInfo: ByteArray, sessionId: Long, callback: (Result<Unit>) -> Unit)
 
   companion object {
     /** The codec used by UwbHostApi. */
@@ -193,7 +193,9 @@ interface UwbHostApi {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val accessoryConfigurationDataArg = args[0] as ByteArray
-            api.initializeAndroidController(accessoryConfigurationDataArg) { result: Result<ByteArray> ->
+            val sessionKeyInfoArg = args[1] as ByteArray
+            val sessionIdArg = args[2].let { if (it is Int) it.toLong() else it as Long }
+            api.initializeAndroidController(accessoryConfigurationDataArg, sessionKeyInfoArg, sessionIdArg) { result: Result<ByteArray> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -214,7 +216,9 @@ interface UwbHostApi {
             val args = message as List<Any?>
             val configDataArg = args[0] as ByteArray
             val isControllerArg = args[1] as Boolean
-            api.startAndroidRanging(configDataArg, isControllerArg) { result: Result<Unit> ->
+            val sessionKeyInfoArg = args[2] as ByteArray
+            val sessionIdArg = args[3].let { if (it is Int) it.toLong() else it as Long }
+            api.startAndroidRanging(configDataArg, isControllerArg, sessionKeyInfoArg, sessionIdArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))

@@ -84,8 +84,8 @@ protocol UwbHostApi {
   func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
   func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void)
   func getAndroidAccessoryConfigurationData(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
-  func initializeAndroidController(accessoryConfigurationData: FlutterStandardTypedData, completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
-  func startAndroidRanging(configData: FlutterStandardTypedData, isController: Bool, completion: @escaping (Result<Void, Error>) -> Void)
+  func initializeAndroidController(accessoryConfigurationData: FlutterStandardTypedData, sessionKeyInfo: FlutterStandardTypedData, sessionId: Int64, completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
+  func startAndroidRanging(configData: FlutterStandardTypedData, isController: Bool, sessionKeyInfo: FlutterStandardTypedData, sessionId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -178,7 +178,9 @@ class UwbHostApiSetup {
       initializeAndroidControllerChannel.setMessageHandler { message, reply in
         let args = message as! [Any?]
         let accessoryConfigurationDataArg = args[0] as! FlutterStandardTypedData
-        api.initializeAndroidController(accessoryConfigurationData: accessoryConfigurationDataArg) { result in
+        let sessionKeyInfoArg = args[1] as! FlutterStandardTypedData
+        let sessionIdArg = args[2] is Int64 ? args[2] as! Int64 : Int64(args[2] as! Int32)
+        api.initializeAndroidController(accessoryConfigurationData: accessoryConfigurationDataArg, sessionKeyInfo: sessionKeyInfoArg, sessionId: sessionIdArg) { result in
           switch result {
           case .success(let res):
             reply(wrapResult(res))
@@ -196,7 +198,9 @@ class UwbHostApiSetup {
         let args = message as! [Any?]
         let configDataArg = args[0] as! FlutterStandardTypedData
         let isControllerArg = args[1] as! Bool
-        api.startAndroidRanging(configData: configDataArg, isController: isControllerArg) { result in
+        let sessionKeyInfoArg = args[2] as! FlutterStandardTypedData
+        let sessionIdArg = args[3] is Int64 ? args[3] as! Int64 : Int64(args[3] as! Int32)
+        api.startAndroidRanging(configData: configDataArg, isController: isControllerArg, sessionKeyInfo: sessionKeyInfoArg, sessionId: sessionIdArg) { result in
           switch result {
           case .success:
             reply(wrapResult(nil))

@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:uwb/src/uwb.g.dart';
@@ -56,6 +60,7 @@ class FlutterUwb implements UwbFlutterApi {
   StreamSubscription? _bleDataReceivedSubscription;
   
   String? _localDeviceName;
+  String? _serviceUUIDDigest;
   final Map<String, DiscoveredPeer> _activePeers = {};
 
   final _peersController = StreamController<UwbPeer>.broadcast();
@@ -67,11 +72,13 @@ class FlutterUwb implements UwbFlutterApi {
   Future<void> start(String deviceName, String serviceUUIDDigest) async {
     await stop(); 
     _localDeviceName = deviceName;
+    _serviceUUIDDigest = serviceUUIDDigest;
     
     const uuid = Uuid();
-    final serviceUuid = uuid.v5(Uuid.NAMESPACE_URL, '$serviceUUIDDigest-service');
-    final handshakeUuid = uuid.v5(Uuid.NAMESPACE_URL, '$serviceUUIDDigest-handshake');
-    final platformUuid = uuid.v5(Uuid.NAMESPACE_URL, '$serviceUUIDDigest-platform');
+    final baseUuid = sha256.convert(utf8.encode(sha256.convert(utf8.encode(serviceUUIDDigest)).toString())).toString();
+    final serviceUuid = uuid.v5(Uuid.NAMESPACE_URL, '$baseUuid-service');
+    final handshakeUuid = uuid.v5(Uuid.NAMESPACE_URL, '$baseUuid-handshake');
+    final platformUuid = uuid.v5(Uuid.NAMESPACE_URL, '$baseUuid-platform');
 
     _bleManager = UwbBleManager(
       serviceUuid: serviceUuid,
@@ -90,6 +97,7 @@ class FlutterUwb implements UwbFlutterApi {
 
   Future<void> stop() async {
     _localDeviceName = null;
+    _serviceUUIDDigest = null;
     await _peerDiscoveredSubscription?.cancel();
     await _peerLostSubscription?.cancel();
     await _bleDataReceivedSubscription?.cancel();
@@ -116,27 +124,30 @@ class FlutterUwb implements UwbFlutterApi {
 
   Future<void> _initiateHandshake(DiscoveredPeer peer) async {
     final localDeviceName = _localDeviceName;
-    if (localDeviceName == null) return;
+    if (localDeviceName == null || _serviceUUIDDigest == null) return;
     
     try {
-      // Per Apple's docs, the accessory (Android) initiates the handshake by sending its config data first.
-      if (Platform.isAndroid && peer.platform == 'ios') {
-        debugPrint("[UWB INTERFACE] Android device is accessory. Getting accessory config data.");
-        final accessoryConfigData = await _hostApi.getAndroidAccessoryConfigurationData();
-        debugPrint("[UWB INTERFACE] Sending Android accessory config to iOS peer via BLE.");
-        await _bleManager!.sendHandshakeData(peer.peripheral, accessoryConfigData);
-      } else {
-        // iOS-to-iOS or a decided controller in a same-platform scenario initiates.
-        bool isController = false;
-        if (localDeviceName.compareTo(peer.deviceName) < 0) {
-          isController = true;
-        }
+      bool isController = false;
+      if (Platform.isIOS && peer.platform == 'android') {
+        isController = true;
+      } else if (Platform.isAndroid && peer.platform == 'ios') {
+        isController = false;
+      } else if (localDeviceName.compareTo(peer.deviceName) < 0) {
+        isController = true;
+      }
 
-        if (isController && Platform.isIOS && peer.platform == 'ios') {
-          debugPrint("[UWB INTERFACE] iOS device is controller to another iOS. Getting token from native.");
+      if (isController) {
+        if (Platform.isIOS) {
           final token = await _hostApi.startIosController();
-          debugPrint("[UWB INTERFACE] Sending iOS token to BLE manager.");
           await _bleManager!.sendHandshakeData(peer.peripheral, token);
+        } else {
+          final sessionKeyInfo = Uint8List.fromList(sha256.convert(utf8.encode(_serviceUUIDDigest!)).bytes);
+          final sessionId = _serviceUUIDDigest!.hashCode;
+
+          final accessoryConfigData = await _hostApi.getAndroidAccessoryConfigurationData();
+          final shareableConfigData = await _hostApi.initializeAndroidController(accessoryConfigData, sessionKeyInfo, sessionId);
+          await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfigData);
+          await _hostApi.startAndroidRanging(shareableConfigData, true, sessionKeyInfo, sessionId);
         }
       }
     } catch (e) {
@@ -146,26 +157,20 @@ class FlutterUwb implements UwbFlutterApi {
 
   Future<void> _handleBleDataReceived(BleDataReceived event) async {
     final peer = _activePeers[event.peripheral.uuid.toString()];
-    if (peer == null) return;
+    if (peer == null || _serviceUUIDDigest == null) return;
 
     try {
+      final sessionKeyInfo = Uint8List.fromList(sha256.convert(utf8.encode(_serviceUUIDDigest!)).bytes);
+      final sessionId = _serviceUUIDDigest!.hashCode;
+
       if (Platform.isIOS && peer.platform == 'ios') {
-        debugPrint("[UWB INTERFACE] iOS received token from iOS peer. Passing to native to start accessory mode.");
         await _hostApi.startIosAccessory(event.data);
-      } 
-      // This device is iOS (controller) and it has received the initial config from the Android accessory.
-      else if (Platform.isIOS && peer.platform == 'android') {
-        debugPrint("[UWB INTERFACE] iOS (Controller) received accessory config from Android. Passing to native to initialize.");
-        final shareableConfig = await _hostApi.initializeAndroidController(event.data);
-        debugPrint("[UWB INTERFACE] iOS received shareable config from native. Sending it back to Android peer via BLE.");
+      } else if (Platform.isIOS && peer.platform == 'android') {
+        final shareableConfig = await _hostApi.initializeAndroidController(event.data, sessionKeyInfo, sessionId);
         await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfig);
-        debugPrint("[UWB INTERFACE] iOS starting ranging with Android peer.");
-        await _hostApi.startAndroidRanging(shareableConfig, true);
-      } 
-      // This device is Android (accessory) and it has received the shareable config back from the iOS controller.
-      else if (Platform.isAndroid && peer.platform == 'ios') {
-        debugPrint("[UWB INTERFACE] Android (Accessory) received shareable config from iOS. Passing to native to start ranging.");
-        await _hostApi.startAndroidRanging(event.data, false);
+        await _hostApi.startAndroidRanging(shareableConfig, true, sessionKeyInfo, sessionId);
+      } else if (Platform.isAndroid) {
+        await _hostApi.startAndroidRanging(event.data, false, sessionKeyInfo, sessionId);
       }
     } catch (e) {
       _rangingErrorController.add("Error handling received BLE data: $e");

@@ -33,10 +33,10 @@ abstract class UwbHostApi {
   Uint8List getAndroidAccessoryConfigurationData();
 
   @async
-  Uint8List initializeAndroidController(Uint8List accessoryConfigurationData);
+  Uint8List initializeAndroidController(Uint8List accessoryConfigurationData, Uint8List sessionKeyInfo, int sessionId);
 
   @async
-  void startAndroidRanging(Uint8List configData, bool isController);
+  void startAndroidRanging(Uint8List configData, bool isController, Uint8List sessionKeyInfo, int sessionId);
 }
 
 @FlutterApi()

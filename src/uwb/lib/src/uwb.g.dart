@@ -196,7 +196,7 @@ class UwbHostApi {
     }
   }
 
-  Future<Uint8List> initializeAndroidController(Uint8List accessoryConfigurationData) async {
+  Future<Uint8List> initializeAndroidController(Uint8List accessoryConfigurationData, Uint8List sessionKeyInfo, int sessionId) async {
     const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.initializeAndroidController';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -204,7 +204,7 @@ class UwbHostApi {
       binaryMessenger: __pigeon_binaryMessenger,
     );
     final List<Object?>? __pigeon_replyList =
-        await __pigeon_channel.send(<Object?>[accessoryConfigurationData]) as List<Object?>?;
+        await __pigeon_channel.send(<Object?>[accessoryConfigurationData, sessionKeyInfo, sessionId]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
@@ -223,7 +223,7 @@ class UwbHostApi {
     }
   }
 
-  Future<void> startAndroidRanging(Uint8List configData, bool isController) async {
+  Future<void> startAndroidRanging(Uint8List configData, bool isController, Uint8List sessionKeyInfo, int sessionId) async {
     const String __pigeon_channelName = 'dev.flutter.pigeon.uwb.UwbHostApi.startAndroidRanging';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -231,7 +231,7 @@ class UwbHostApi {
       binaryMessenger: __pigeon_binaryMessenger,
     );
     final List<Object?>? __pigeon_replyList =
-        await __pigeon_channel.send(<Object?>[configData, isController]) as List<Object?>?;
+        await __pigeon_channel.send(<Object?>[configData, isController, sessionKeyInfo, sessionId]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
