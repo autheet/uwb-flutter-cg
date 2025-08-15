@@ -25,6 +25,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     }
 
     public func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        print("[UWB] Starting...")
         peerID = MCPeerID(displayName: deviceName)
         mcSession = MCSession(peer: peerID!, securityIdentity: nil, encryptionPreference: .required)
         mcSession?.delegate = self
@@ -44,6 +45,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     }
 
     public func stop(completion: @escaping (Result<Void, Error>) -> Void) {
+        print("[UWB] Stopping...")
         advertiser?.stopAdvertisingPeer()
         browser?.stopBrowsingForPeers()
         mcSession?.disconnect()
@@ -52,6 +54,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     }
 
     public func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+        print("[UWB] Starting iOS controller...")
         guard let token = niSession?.discoveryToken else {
             return completion(.failure(FlutterError(code: "uwb", message: "Missing discovery token", details: nil)))
         }
@@ -62,6 +65,7 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     }
 
     public func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void) {
+        print("[UWB] Starting iOS accessory...")
         guard let token = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: token.data) else {
             return completion(.failure(FlutterError(code: "uwb", message: "Invalid token", details: nil)))
         }
@@ -126,37 +130,47 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate, 
     }
     
     public func session(_ session: NISession, didInvalidateWith error: Error) {
+        print("[UWB] NI session did invalidate with error: \(error)")
         flutterApi?.onRangingError(error: error.localizedDescription, completion: { _ in })
     }
     
     // MARK: - MCNearbyServiceAdvertiserDelegate
     
     public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+        print("[UWB] Received invitation from peer: \(peerID.displayName)")
         invitationHandler(true, mcSession)
     }
     
     // MARK: - MCNearbyServiceBrowserDelegate
     
     public func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
+        print("[UWB] Found peer: \(peerID.displayName)")
         browser.invitePeer(peerID, to: mcSession!, withContext: nil, timeout: 10)
     }
     
     public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        
+        print("[UWB] Lost peer: \(peerID.displayName)")
     }
     
     // MARK: - MCSessionDelegate
     
     public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        if state == .connected {
+        switch state {
+        case .connected:
+            print("[UWB] Peer connected: \(peerID.displayName)")
             flutterApi?.onPeerDiscovered(deviceName: peerID.displayName, peerAddress: "", completion: { _ in })
-        } else if state == .notConnected {
+        case .notConnected:
+            print("[UWB] Peer not connected: \(peerID.displayName)")
             flutterApi?.onPeerLost(deviceName: peerID.displayName, peerAddress: "", completion: { _ in })
+        case .connecting:
+            print("[UWB] Peer connecting: \(peerID.displayName)")
+        @unknown default:
+            print("[UWB] Peer state changed to unknown: \(peerID.displayName)")
         }
     }
     
     public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        
+        print("[UWB] Received data from peer: \(peerID.displayName)")
     }
     
     public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {
