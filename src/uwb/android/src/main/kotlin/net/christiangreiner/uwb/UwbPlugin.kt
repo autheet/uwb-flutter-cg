@@ -17,10 +17,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 // Import the generated Pigeon classes
 import net.christiangreiner.uwb.RangingResult as PigeonRangingResult
+import net.christiangreiner.uwb.UwbConfig as PigeonUwbConfig
 
 class UwbPlugin : FlutterPlugin, UwbHostApi {
 
@@ -45,6 +45,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         scope.cancel()
     }
     
+    // --- Session Management ---
     override fun start(deviceName: String, serviceUUIDDigest: String, callback: (Result<Unit>) -> Unit) {
         val context = appContext ?: return callback(Result.failure(Exception("AppContext is null")))
         scope.launch {
@@ -66,12 +67,16 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         callback(Result.success(Unit))
     }
 
-    override fun getAndroidAccessoryConfigurationData(callback: (Result<ByteArray>) -> Unit) {
+    // --- FiRa Accessory Ranging (Android Implementation) ---
+
+    // Step 1: An accessory gets its own UWB address to share with a controller.
+    override fun getAccessoryAddress(callback: (Result<ByteArray>) -> Unit) {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
         scope.launch {
             try {
-                // For the accessory (controlee) role, we need to establish the session scope first.
-                // The localAddress from this scope is the initial "configuration data" sent to the controller.
+                // For the accessory (controlee) role, we establish the session scope.
+                // The localAddress from this scope is the data sent to the controller.
+                clientSessionScope?.close() // Ensure any old session is closed.
                 val sessionScope = manager.controleeSessionScope()
                 clientSessionScope = sessionScope
                 callback(Result.success(sessionScope.localAddress.address))
@@ -81,70 +86,69 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         }
     }
 
-    // This method is called when an Android device is acting as the Controller.
-    override fun initializeAndroidController(accessoryConfigurationData: ByteArray, sessionKeyInfo: ByteArray, sessionId: Long, callback: (Result<ByteArray>) -> Unit) {
+    // Step 2: A controller takes an accessory's address and generates the full config for the session.
+    override fun generateControllerConfig(accessoryAddress: ByteArray, sessionKeyInfo: ByteArray, sessionId: Long, callback: (Result<PigeonUwbConfig>) -> Unit) {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
         scope.launch {
             try {
+                clientSessionScope?.close() // Ensure any old session is closed.
                 val sessionScope = manager.controllerSessionScope()
                 clientSessionScope = sessionScope
-                
-                // On the controller, we create RangingParameters for the accessory.
-                val accessoryAddress = UwbAddress(accessoryConfigurationData)
-                // We must pick a channel that both devices support. Channel 9 is standard.
+
+                val peerAddress = UwbAddress(accessoryAddress)
+                // Use standard FiRa-compliant settings. Channel 9 is the most common.
+                val configId = RangingParameters.CONFIG_UNICAST_DS_TWR
                 val channel = 9
-                val complexChannel = UwbComplexChannel(channel, 0) // Preamble index 0 is a common default
+                val preamble = 10 
+                val complexChannel = UwbComplexChannel(channel, preamble)
 
                 val rangingParameters = RangingParameters(
-                    uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
+                    uwbConfigType = configId,
                     sessionId = sessionId.toInt(),
                     subSessionId = 0,
                     sessionKeyInfo = sessionKeyInfo,
                     subSessionKeyInfo = null,
                     complexChannel = complexChannel,
-                    peerDevices = listOf(UwbDevice.createForAddress(accessoryAddress.address)),
+                    peerDevices = listOf(UwbDevice.createForAddress(peerAddress.address)),
                     updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
                 )
 
-                val sessionFlow = sessionScope.prepareSession(rangingParameters)
                 rangingJob?.cancel()
-                rangingJob = sessionFlow.onEach { handleRangingResult(it) }.launchIn(scope)
+                rangingJob = sessionScope.prepareSession(rangingParameters).onEach { handleRangingResult(it) }.launchIn(scope)
                 
-                // Instead of just the address, we send a JSON object with all necessary params.
-                val configJson = JSONObject()
-                configJson.put("address", sessionScope.localAddress.address)
-                configJson.put("channel", channel)
-                configJson.put("preamble", 0)
-                
-                callback(Result.success(configJson.toString().toByteArray()))
+                // Return the full config object so the other device knows exactly what parameters to use.
+                val config = PigeonUwbConfig(
+                    uwbConfigId = configId.toLong(),
+                    sessionId = sessionId,
+                    sessionKeyInfo = sessionKeyInfo,
+                    channel = channel.toLong(),
+                    preambleIndex = preamble.toLong(),
+                    peerAddress = sessionScope.localAddress.address
+                )
+                callback(Result.success(config))
             } catch (e: Exception) {
                 callback(Result.failure(e))
             }
         }
     }
 
-    // This method is called when an Android device is acting as the Accessory (controlee).
-    override fun startAndroidRanging(configData: ByteArray, isController: Boolean, sessionKeyInfo: ByteArray, sessionId: Long, callback: (Result<Unit>) -> Unit) {
-        val sessionScope = clientSessionScope ?: return callback(Result.failure(Exception("UwbClientSessionScope not initialized")))
+    // Step 3: An accessory receives the full config from the controller and starts ranging.
+    override fun startAccessoryRanging(config: PigeonUwbConfig, callback: (Result<Unit>) -> Unit) {
+        val sessionScope = clientSessionScope ?: return callback(Result.failure(Exception("UwbClientSessionScope not initialized. Was getAccessoryAddress called?")))
         
         scope.launch {
             try {
-                // This is the critical change. We now parse the configuration from the controller.
-                val configJson = JSONObject(String(configData))
-                val addressBytes = configJson.getString("address").toByteArray()
-                val channel = configJson.getInt("channel")
-                val preamble = configJson.getInt("preamble")
-
-                val controllerAddress = UwbAddress(addressBytes)
-                val complexChannel = UwbComplexChannel(channel, preamble)
+                // This is the critical change. We now use the exact parameters from the controller.
+                val controllerAddress = UwbAddress(config.peerAddress)
+                val complexChannel = UwbComplexChannel(config.channel.toInt(), config.preambleIndex.toInt())
 
                 val rangingParameters = RangingParameters(
-                    uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
-                    sessionId = sessionId.toInt(),
+                    uwbConfigType = config.uwbConfigId.toInt(),
+                    sessionId = config.sessionId.toInt(),
                     subSessionId = 0,
-                    sessionKeyInfo = sessionKeyInfo,
+                    sessionKeyInfo = config.sessionKeyInfo,
                     subSessionKeyInfo = null,
-                    complexChannel = complexChannel, // Use the channel dictated by the controller
+                    complexChannel = complexChannel,
                     peerDevices = listOf(UwbDevice.createForAddress(controllerAddress.address)),
                     updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
                 )
@@ -179,7 +183,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         }
     }
 
-    // These methods are not used on Android.
+    // --- iOS Peer-to-Peer Ranging (Not used on Android) ---
     override fun startIosController(callback: (Result<ByteArray>) -> Unit) {
         callback(Result.failure(Exception("This method is for iOS only.")))
     }

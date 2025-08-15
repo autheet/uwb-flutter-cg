@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:uwb/src/uwb.g.dart';
 import 'package:uwb/src/uwb_ble_manager.dart';
 import 'package:crypto/crypto.dart';
-import 'dart:convert';
 import 'package:permission_handler/permission_handler.dart';
 
 // --- Public Facing Data Class ---
@@ -32,10 +32,10 @@ class UwbPeer {
 
   UwbPeer copyWith({double? distance, double? azimuth, double? elevation}) {
     return UwbPeer(
-      peerAddress: this.peerAddress,
-      deviceName: this.deviceName,
-      platform: this.platform,
-      rssi: this.rssi,
+      peerAddress: peerAddress,
+      deviceName: deviceName,
+      platform: platform,
+      rssi: rssi,
       distance: distance ?? this.distance,
       azimuth: azimuth ?? this.azimuth,
       elevation: elevation ?? this.elevation,
@@ -49,7 +49,7 @@ class FlutterUwb implements UwbFlutterApi {
   factory FlutterUwb() => _instance;
 
   FlutterUwb._internal() {
-    UwbFlutterApi.setup(this);
+    UwbFlutterApi.setUp(this);
   }
 
   final UwbHostApi _hostApi = UwbHostApi();
@@ -81,11 +81,12 @@ class FlutterUwb implements UwbFlutterApi {
     } else if (Platform.isIOS) {
       statuses = await [
         Permission.bluetooth,
+        Permission.nearbyWifiDevices,
       ].request();
     } else {
       return;
     }
-    print("[UWB INTERFACE] Permission statuses: $statuses");
+    debugPrint("[UWB INTERFACE] Permission statuses: $statuses");
   }
 
   Future<void> start(String deviceName, String serviceUUIDDigest) async {
@@ -146,37 +147,23 @@ class FlutterUwb implements UwbFlutterApi {
   Future<void> initiateHandshake(String peerAddress) async {
     final peer = _activePeers[peerAddress];
     if (peer == null) {
-      print("[UWB INTERFACE] Error: Peer not found for address $peerAddress");
+      debugPrint("[UWB INTERFACE] Error: Peer not found for address $peerAddress");
       return;
     }
 
-    final localDeviceName = _localDeviceName;
-    if (localDeviceName == null) return;
-    
     try {
-      if (Platform.isAndroid && peer.platform == 'ios') {
-        // Add a delay to allow the iOS central to discover services
-        await Future.delayed(const Duration(milliseconds: 500));
-        print("[UWB INTERFACE] Android device is accessory. Getting accessory config data.");
-        final accessoryConfigData = await _hostApi.getAndroidAccessoryConfigurationData();
-        print("[UWB INTERFACE] Sending Android accessory config to iOS peer via BLE.");
-        await _bleManager!.sendHandshakeData(peer.peripheral, accessoryConfigData);
-      } else {
-        bool isController = false;
-        if (Platform.isIOS && peer.platform == 'android') {
-          isController = true;
-        } else if (localDeviceName.compareTo(peer.deviceName) < 0) {
-          isController = true;
-        }
-
-        if (isController) {
-          if (Platform.isIOS) {
-            print("[UWB INTERFACE] iOS device is controller to another iOS. Getting token from native.");
-            final token = await _hostApi.startIosController();
-            print("[UWB INTERFACE] Sending iOS token to BLE manager.");
-            await _bleManager!.sendHandshakeData(peer.peripheral, token);
-          }
-        }
+      // Case 1: iOS to iOS ranging (uses legacy peer-to-peer method)
+      if (Platform.isIOS && peer.platform == 'ios') {
+        debugPrint("[UWB INTERFACE] iOS device is controller to another iOS. Getting token from native.");
+        final token = await _hostApi.startIosController();
+        debugPrint("[UWB INTERFACE] Sending iOS token to BLE manager.");
+        await _bleManager!.sendHandshakeData(peer.peripheral, token);
+      } 
+      // Case 2: Any other combination uses the FiRa Accessory protocol.
+      else {
+        debugPrint("[UWB INTERFACE] Starting FiRa Accessory handshake with ${peer.deviceName}.");
+        final accessoryAddress = await _hostApi.getAccessoryAddress();
+        await _bleManager!.sendHandshakeData(peer.peripheral, accessoryAddress);
       }
     } catch (e) {
       _rangingErrorController.add("Error during handshake initiation: $e");
@@ -188,24 +175,52 @@ class FlutterUwb implements UwbFlutterApi {
     if (peer == null || _serviceUUIDDigest == null) return;
 
     try {
-      final sessionKeyInfo = Uint8List.fromList(sha256.convert(utf8.encode(_serviceUUIDDigest!)).bytes);
-      final sessionId = _serviceUUIDDigest!.hashCode;
-
+      // Legacy path for iOS-to-iOS peer ranging
       if (Platform.isIOS && peer.platform == 'ios') {
-        print("[UWB INTERFACE] iOS received token from iOS peer. Passing to native to start accessory mode.");
+        debugPrint("[UWB INTERFACE] iOS received token from iOS peer. Passing to native to start accessory mode.");
         await _hostApi.startIosAccessory(event.data);
+        return;
+      }
+
+      // --- New FiRa Accessory Protocol ---
+      final localDeviceName = _localDeviceName!;
+      bool isController = localDeviceName.compareTo(peer.deviceName) > 0;
+
+      // If this device is the controller, the data received is the accessory's address.
+      if (isController) {
+        debugPrint("[UWB INTERFACE] Controller received accessory address. Generating full UWB config.");
+        final sessionKeyInfo = Uint8List.fromList(sha256.convert(utf8.encode(_serviceUUIDDigest!)).bytes);
+        final sessionId = _serviceUUIDDigest!.hashCode;
+        final config = await _hostApi.generateControllerConfig(event.data, sessionKeyInfo, sessionId);
+        
+        // Serialize the UwbConfig object to JSON to send over BLE
+        final configJson = {
+          'uwbConfigId': config.uwbConfigId,
+          'sessionId': config.sessionId,
+          'sessionKeyInfo': config.sessionKeyInfo,
+          'channel': config.channel,
+          'preambleIndex': config.preambleIndex,
+          'peerAddress': config.peerAddress,
+        };
+        final configString = jsonEncode(configJson);
+        await _bleManager!.sendHandshakeData(peer.peripheral, Uint8List.fromList(utf8.encode(configString)));
       } 
-      else if (Platform.isIOS && peer.platform == 'android') {
-        print("[UWB INTERFACE] iOS (Controller) received accessory config from Android. Passing to native to initialize.");
-        final shareableConfig = await _hostApi.initializeAndroidController(event.data, sessionKeyInfo, sessionId.toInt());
-        print("[UWB INTERFACE] iOS received shareable config from native. Sending it back to Android peer via BLE.");
-        await _bleManager!.sendHandshakeData(peer.peripheral, shareableConfig);
-        print("[UWB INTERFACE] iOS starting ranging with Android peer.");
-        await _hostApi.startAndroidRanging(shareableConfig, true, sessionKeyInfo, sessionId.toInt());
-      } 
-      else if (Platform.isAndroid && peer.platform == 'ios') {
-        print("[UWB INTERFACE] Android (Accessory) received shareable config from iOS. Passing to native to start ranging.");
-        await _hostApi.startAndroidRanging(event.data, false, sessionKeyInfo, sessionId.toInt());
+      // If this device is the accessory, the data received is the full UWBConfig.
+      else {
+        debugPrint("[UWB INTERFACE] Accessory received full UWB config. Starting ranging session.");
+        final configString = utf8.decode(event.data);
+        final configJson = jsonDecode(configString) as Map<String, dynamic>;
+        
+        final config = UwbConfig(
+          uwbConfigId: configJson['uwbConfigId'],
+          sessionId: configJson['sessionId'],
+          sessionKeyInfo: Uint8List.fromList(List<int>.from(configJson['sessionKeyInfo'])),
+          channel: configJson['channel'],
+          preambleIndex: configJson['preambleIndex'],
+          peerAddress: Uint8List.fromList(List<int>.from(configJson['peerAddress'])),
+        );
+          
+        await _hostApi.startAccessoryRanging(config);
       }
     } catch (e) {
       _rangingErrorController.add("Error handling received BLE data: $e");
@@ -214,20 +229,18 @@ class FlutterUwb implements UwbFlutterApi {
 
   @override
   void onRangingResult(RangingResult result) {
-    final peerKey = _activePeers.keys.firstWhere((k) => _activePeers[k]!.deviceName == result.deviceName, orElse: () => '');
-    if (peerKey.isNotEmpty) {
-      final peer = _activePeers[peerKey]!;
-      final updatedPeer = UwbPeer(
-        peerAddress: peer.peripheral.uuid.toString(),
-        deviceName: peer.deviceName,
-        platform: peer.platform,
-        rssi: peer.rssi,
-        distance: result.distance,
-        azimuth: result.azimuth,
-        elevation: result.elevation,
-      );
-      _peersController.add(updatedPeer);
-    }
+    // This logic might need adjustment based on how peer addresses are now handled
+    final peer = _activePeers.values.firstWhere((p) => p.deviceName == result.deviceName, orElse: () => _activePeers.values.first);
+    final updatedPeer = UwbPeer(
+      peerAddress: peer.peripheral.uuid.toString(),
+      deviceName: peer.deviceName,
+      platform: peer.platform,
+      rssi: peer.rssi,
+      distance: result.distance,
+      azimuth: result.azimuth,
+      elevation: result.elevation,
+    );
+    _peersController.add(updatedPeer);
   }
 
   @override

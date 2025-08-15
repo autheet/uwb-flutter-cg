@@ -12,31 +12,52 @@ class RangingResult {
   final double? elevation; // Vertical angle
 }
 
+/// A data class to hold all necessary UWB configuration parameters for the
+/// FiRa accessory protocol. This ensures that both the controller and accessory
+/// are using the exact same settings for the ranging session.
+class UwbConfig {
+  /// Corresponds to RangingParameters.UwbConfigId (e.g., CONFIG_UNICAST_DS_TWR).
+  late int uwbConfigId;
+  /// The session ID for the ranging interaction.
+  late int sessionId;
+  /// The session key for securing the ranging data.
+  late Uint8List sessionKeyInfo;
+  /// The UWB channel to be used.
+  late int channel;
+  /// The preamble index for the UWB signal.
+  late int preambleIndex;
+  /// The UWB address of the peer device (the one not generating this config).
+  late Uint8List peerAddress;
+}
+
 // --- API Definitions ---
 @HostApi()
 abstract class UwbHostApi {
+  // --- Session Management ---
   @async
   void start(String deviceName, String serviceUUIDDigest);
-
   @async
   void stop();
 
-  // --- iOS Specific Methods ---
+  // --- iOS Peer-to-Peer Ranging (Apple devices only) ---
+  // This uses NINearbyPeerConfiguration and is kept for iOS-iOS functionality.
   @async
   Uint8List startIosController();
-
   @async
   void startIosAccessory(Uint8List token);
 
-  // --- Android Specific Methods ---
+  // --- FiRa Accessory Ranging (Cross-Platform) ---
+  // Step 1: An accessory gets its own UWB address to share with a controller.
   @async
-  Uint8List getAndroidAccessoryConfigurationData();
+  Uint8List getAccessoryAddress();
 
+  // Step 2: A controller takes an accessory's address and generates the full config for the session.
   @async
-  Uint8List initializeAndroidController(Uint8List accessoryConfigurationData, Uint8List sessionKeyInfo, int sessionId);
-
+  UwbConfig generateControllerConfig(Uint8List accessoryAddress, Uint8List sessionKeyInfo, int sessionId);
+  
+  // Step 3: An accessory receives the full config from the controller and starts ranging.
   @async
-  void startAndroidRanging(Uint8List configData, bool isController, Uint8List sessionKeyInfo, int sessionId);
+  void startAccessoryRanging(UwbConfig config);
 }
 
 @FlutterApi()
