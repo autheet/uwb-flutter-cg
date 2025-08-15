@@ -146,24 +146,37 @@ class FlutterUwb implements UwbFlutterApi {
 
   Future<void> initiateHandshake(String peerAddress) async {
     final peer = _activePeers[peerAddress];
-    if (peer == null) {
-      debugPrint("[UWB INTERFACE] Error: Peer not found for address $peerAddress");
+    if (peer == null || _localDeviceName == null) {
+      debugPrint("[UWB INTERFACE] Error: Peer or local device name not found.");
       return;
     }
 
     try {
       // Case 1: iOS to iOS ranging (uses legacy peer-to-peer method)
       if (Platform.isIOS && peer.platform == 'ios') {
-        debugPrint("[UWB INTERFACE] iOS device is controller to another iOS. Getting token from native.");
+        debugPrint("[UWB INTERFACE] iOS device initiating peer-to-peer handshake with another iOS device.");
         final token = await _hostApi.startIosController();
-        debugPrint("[UWB INTERFACE] Sending iOS token to BLE manager.");
         await _bleManager!.sendHandshakeData(peer.peripheral, token);
-      } 
-      // Case 2: Any other combination uses the FiRa Accessory protocol.
-      else {
-        debugPrint("[UWB INTERFACE] Starting FiRa Accessory handshake with ${peer.deviceName}.");
+        return;
+      }
+
+      // Case 2: FiRa Accessory Protocol for cross-platform and Android-to-Android
+      bool isAccessory = false;
+      if (Platform.isAndroid && peer.platform == 'ios') {
+        isAccessory = true; // Android is always accessory to iOS
+      } else if (Platform.isAndroid && peer.platform == 'android') {
+        isAccessory = _localDeviceName!.compareTo(peer.deviceName) < 0;
+      } else if (Platform.isIOS && peer.platform == 'android') {
+        isAccessory = false; // iOS is always controller to Android
+      }
+
+      if (isAccessory) {
+        debugPrint("[UWB INTERFACE] Accessory (${Platform.operatingSystem}) initiating handshake with ${peer.deviceName}.");
         final accessoryAddress = await _hostApi.getAccessoryAddress();
         await _bleManager!.sendHandshakeData(peer.peripheral, accessoryAddress);
+      } else {
+        debugPrint("[UWB INTERFACE] Controller (${Platform.operatingSystem}) waiting for accessory handshake from ${peer.deviceName}.");
+        // Controller waits for the accessory to send its address first.
       }
     } catch (e) {
       _rangingErrorController.add("Error during handshake initiation: $e");
@@ -172,28 +185,30 @@ class FlutterUwb implements UwbFlutterApi {
 
   Future<void> _handleBleDataReceived(BleDataReceived event) async {
     final peer = _activePeers[event.peripheral.uuid.toString()];
-    if (peer == null || _serviceUUIDDigest == null) return;
+    if (peer == null || _serviceUUIDDigest == null || _localDeviceName == null) return;
 
     try {
       // Legacy path for iOS-to-iOS peer ranging
       if (Platform.isIOS && peer.platform == 'ios') {
-        debugPrint("[UWB INTERFACE] iOS received token from iOS peer. Passing to native to start accessory mode.");
+        debugPrint("[UWB INTERFACE] iOS received token from iOS peer. Starting accessory mode.");
         await _hostApi.startIosAccessory(event.data);
         return;
       }
 
       // --- New FiRa Accessory Protocol ---
-      final localDeviceName = _localDeviceName!;
-      bool isController = localDeviceName.compareTo(peer.deviceName) > 0;
-
-      // If this device is the controller, the data received is the accessory's address.
+      bool isController = false;
+      if (Platform.isIOS && peer.platform == 'android') {
+        isController = true;
+      } else if (Platform.isAndroid && peer.platform == 'android') {
+        isController = _localDeviceName!.compareTo(peer.deviceName) > 0;
+      }
+      
       if (isController) {
         debugPrint("[UWB INTERFACE] Controller received accessory address. Generating full UWB config.");
         final sessionKeyInfo = Uint8List.fromList(sha256.convert(utf8.encode(_serviceUUIDDigest!)).bytes);
         final sessionId = _serviceUUIDDigest!.hashCode;
         final config = await _hostApi.generateControllerConfig(event.data, sessionKeyInfo, sessionId);
         
-        // Serialize the UwbConfig object to JSON to send over BLE
         final configJson = {
           'uwbConfigId': config.uwbConfigId,
           'sessionId': config.sessionId,
@@ -205,8 +220,7 @@ class FlutterUwb implements UwbFlutterApi {
         final configString = jsonEncode(configJson);
         await _bleManager!.sendHandshakeData(peer.peripheral, Uint8List.fromList(utf8.encode(configString)));
       } 
-      // If this device is the accessory, the data received is the full UWBConfig.
-      else {
+      else { // This device is the Accessory
         debugPrint("[UWB INTERFACE] Accessory received full UWB config. Starting ranging session.");
         final configString = utf8.decode(event.data);
         final configJson = jsonDecode(configString) as Map<String, dynamic>;
