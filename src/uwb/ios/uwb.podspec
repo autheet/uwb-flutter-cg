@@ -17,9 +17,6 @@ A new Flutter plugin project.
   s.dependency 'Flutter'
   s.platform = :ios, '11.0'
 
-  # Add the permission_handler dependency with the Bluetooth subspec
-  s.dependency 'permission_handler'
-
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
   s.swift_version = '5.0'
