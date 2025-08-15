@@ -2,6 +2,7 @@
 import Flutter
 import UIKit
 import NearbyInteraction
+import Foundation // Needed for JSON and logging
 
 // By default, FlutterError does not conform to the Swift Error protocol.
 // We can make it conform by adding an extension.
@@ -20,41 +21,62 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
 
     // The deviceName and serviceUUIDDigest are not used on iOS, as BLE is handled by the Flutter layer.
     public func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        print("[UWB Native iOS] Initializing NISession.")
+        NSLog("[UWB Native iOS] Initializing NISession.")
         niSession = NISession()
         niSession?.delegate = self
         completion(.success(Void()))
     }
 
     public func stop(completion: @escaping (Result<Void, Error>) -> Void) {
-        print("[UWB Native iOS] Invalidating NISession.")
+        NSLog("[UWB Native iOS] Invalidating NISession.")
         niSession?.invalidate()
         niSession = nil
         completion(.success(Void()))
     }
 
+    // Called when the iOS device is the CONTROLLER.
     public func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-        print("[UWB Native iOS] Generating discovery token.")
+        NSLog("[UWB Native iOS] Generating discovery token to send to accessory.")
         guard let token = niSession?.discoveryToken else {
             let error = FlutterError(code: "UWB_ERROR", message: "Missing discovery token", details: nil)
             return completion(.failure(error))
         }
-        guard let tokenData = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) else {
-            let error = FlutterError(code: "UWB_ERROR", message: "Failed to archive discovery token", details: nil)
-            return completion(.failure(error))
+        
+        // This is the critical change. We are now sending a JSON object containing the token,
+        // which the Android accessory will need to start its ranging session.
+        // We are assuming Channel 9, which is the standard UWB channel.
+        do {
+            let tokenData = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
+            let config: [String: Any] = [
+                "token": tokenData.base64EncodedString(),
+                "channel": 9,
+                "preamble": 0
+            ]
+            let configData = try JSONSerialization.data(withJSONObject: config, options: [])
+            completion(.success(FlutterStandardTypedData(bytes: configData)))
+        } catch {
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to create configuration data: \(error.localizedDescription)", details: nil)))
         }
-        completion(.success(FlutterStandardTypedData(bytes: tokenData)))
     }
 
+    // Called when the iOS device is the ACCESSORY.
     public func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void) {
-        print("[UWB Native iOS] Starting accessory role with peer token.")
-        guard let discoveryToken = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: token.data) else {
-            let error = FlutterError(code: "UWB_ERROR", message: "Invalid discovery token data", details: nil)
-            return completion(.failure(error))
+        NSLog("[UWB Native iOS] Starting accessory role with peer token.")
+        do {
+            // The incoming data is now a JSON object from the controller.
+            let config = try JSONSerialization.jsonObject(with: token.data, options: []) as! [String: Any]
+            let tokenData = Data(base64Encoded: config["token"] as! String)!
+            
+            guard let discoveryToken = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
+                let error = FlutterError(code: "UWB_ERROR", message: "Invalid discovery token data", details: nil)
+                return completion(.failure(error))
+            }
+            let config = NINearbyPeerConfiguration(peerToken: discoveryToken)
+            niSession?.run(config)
+            completion(.success(Void()))
+        } catch {
+            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to parse configuration data: \(error.localizedDescription)", details: nil)))
         }
-        let config = NINearbyPeerConfiguration(peerToken: discoveryToken)
-        niSession?.run(config)
-        completion(.success(Void()))
     }
     
     // These methods are Android-specific and should not be called on iOS.
@@ -100,20 +122,20 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
     }
     
     public func sessionWasSuspended(_ session: NISession) {
-        print("[UWB Native iOS] NI session was suspended.")
+        NSLog("[UWB Native iOS] NI session was suspended.")
     }
     
     public func sessionSuspensionEnded(_ session: NISession) {
-        print("[UWB Native iOS] NI session suspension ended.")
+        NSLog("[UWB Native iOS] NI session suspension ended.")
     }
     
     public func session(_ session: NISession, didInvalidateWith error: Error) {
-        print("[UWB Native iOS] NI session did invalidate with error: \(error.localizedDescription)")
+        NSLog("[UWB Native iOS] NI session did invalidate with error: %@", error.localizedDescription)
         flutterApi?.onRangingError(error: error.localizedDescription, completion: { _ in })
     }
     
     public func onReceived(data: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void) {
-        print("[UWB Native iOS] Received data from Dart, likely a discovery token.")
+        NSLog("[UWB Native iOS] Received data from Dart, likely a discovery token.")
         // This is where the handshake data (the peer's discovery token) is passed in from the Dart layer.
         startIosAccessory(token: data, completion: completion)
     }
