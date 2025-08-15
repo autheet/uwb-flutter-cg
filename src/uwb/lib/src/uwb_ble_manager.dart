@@ -28,7 +28,7 @@ class BleDataReceived {
 
 /// Manages all BLE discovery and communication for the UWB handshake.
 class UwbBleManager {
-  final CentralManager _centralManager;
+  CentralManager _centralManager;
   PeripheralManager _peripheralManager;
   final UUID _serviceUuid;
   final UUID _handshakeCharacteristicUuid;
@@ -41,6 +41,7 @@ class UwbBleManager {
   StreamSubscription? _notifySubscription;
 
   final Map<String, Peripheral> _discoveredPeripherals = {};
+  final Map<String, String> _peripheralIdToName = {};
   final Map<String, StreamSubscription> _connectionStateSubscriptions = {};
 
   bool _isActive = false;
@@ -80,9 +81,11 @@ class UwbBleManager {
   Future<void> _handleState(BluetoothLowEnergyState state) async {
     if (state == BluetoothLowEnergyState.poweredOn && !_isActive) {
       _isActive = true;
-      if (Platform.isAndroid) {
-        _peripheralManager = PeripheralManager();
-      }
+      // Re-initialize both managers for a clean state, especially after hot restarts on Android.
+      _centralManager = CentralManager();
+      _peripheralManager = PeripheralManager();
+      _listenToStateChanges();
+      
       await _startAdvertising();
       await _startDiscovery();
     } else if (state != BluetoothLowEnergyState.poweredOn) {
@@ -96,6 +99,8 @@ class UwbBleManager {
     _writeRequestedSubscription = _peripheralManager.characteristicWriteRequested.listen((event) {
       final peripheral = _discoveredPeripherals[event.central.uuid.toString()];
       if (peripheral != null) {
+        final deviceName = _peripheralIdToName[peripheral.uuid.toString()] ?? 'Unknown Device';
+        debugPrint('Received handshake data from $deviceName');
         _bleDataReceivedController.add(BleDataReceived(peripheral: peripheral, data: event.request.value));
       }
     });
@@ -132,9 +137,9 @@ class UwbBleManager {
   Future<void> _startDiscovery() async {
     _discoverySubscription?.cancel();
     _discoverySubscription = _centralManager.discovered.listen((event) {
-      debugPrint('Bluetooth Scan Result: ${event.advertisement.name ?? 'Unknown'} RSSI: ${event.rssi}');
       final deviceName = event.advertisement.name;
       if (deviceName != null && deviceName.isNotEmpty && !_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
+        _peripheralIdToName[event.peripheral.uuid.toString()] = deviceName;
         _discoveredPeripherals[event.peripheral.uuid.toString()] = event.peripheral;
         _connectAndDiscover(event.peripheral, deviceName, event.rssi);
       }
@@ -144,9 +149,7 @@ class UwbBleManager {
 
   Future<void> _connectAndDiscover(Peripheral peripheral, String peerDeviceName, int rssi) async {
     try {
-      debugPrint('Connecting to ${peerDeviceName}...');
       await _centralManager.connect(peripheral);
-      debugPrint('Connected to ${peerDeviceName}.');
 
       _connectionStateSubscriptions[peripheral.uuid.toString()] = _centralManager.connectionStateChanged.listen((event) {
         if (event.peripheral == peripheral && event.state == ConnectionState.disconnected) {
@@ -161,11 +164,14 @@ class UwbBleManager {
       final platformCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _platformCharacteristicUuid);
       final platformBytes = await _centralManager.readCharacteristic(peripheral, platformCharacteristic);
       final platform = utf8.decode(platformBytes);
+      debugPrint('Discovered peer: $peerDeviceName on platform: $platform');
       
       final handshakeCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
       await _centralManager.setCharacteristicNotifyState(peripheral, handshakeCharacteristic, state: true);
       _notifySubscription = _centralManager.characteristicNotified.listen((event) {
         if (event.characteristic.uuid == _handshakeCharacteristicUuid) {
+          final deviceName = _peripheralIdToName[event.peripheral.uuid.toString()] ?? 'Unknown Device';
+          debugPrint('Received handshake data from $deviceName');
           _bleDataReceivedController.add(BleDataReceived(peripheral: event.peripheral, data: event.value));
         }
       });
@@ -180,6 +186,8 @@ class UwbBleManager {
   
   Future<void> sendHandshakeData(Peripheral peripheral, Uint8List data) async {
     try {
+      final deviceName = _peripheralIdToName[peripheral.uuid.toString()] ?? 'Unknown Device';
+      debugPrint('Sending handshake data to $deviceName');
       final services = await _centralManager.discoverGATT(peripheral);
       final service = services.firstWhere((s) => s.uuid == _serviceUuid);
       final handshakeCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
@@ -197,6 +205,7 @@ class UwbBleManager {
     _writeRequestedSubscription?.cancel();
     _notifySubscription?.cancel();
     _discoveredPeripherals.values.forEach(_cleanupConnection);
+    _peripheralIdToName.clear();
     _discoveredPeripherals.clear();
     _peerDiscoveredController.close();
     _peerLostController.close();
@@ -206,6 +215,7 @@ class UwbBleManager {
   void _cleanupConnection(Peripheral peripheral) {
     _connectionStateSubscriptions[peripheral.uuid.toString()]?.cancel();
     _connectionStateSubscriptions.remove(peripheral.uuid.toString());
+    _peripheralIdToName.remove(peripheral.uuid.toString());
     _centralManager.disconnect(peripheral).catchError((e) => debugPrint("Error disconnecting: $e"));
   }
 
