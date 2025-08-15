@@ -1,8 +1,0 @@
-# pigeon.yaml
-input: pigeons/uwb.dart
-dart_out: uwb.g.dart
-swift_out: ios/Classes/Uwb.g.swift
-swift_options:
-  publicDataObjects: true
-java_out: android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt
-java_package: net.christiangreiner.uwb
