@@ -127,6 +127,7 @@ class UwbBleManager {
   Future<void> _startDiscovery() async {
     _discoverySubscription?.cancel();
     _discoverySubscription = _centralManager.discovered.listen((event) {
+      debugPrint('Bluetooth Scan Result: ${event.advertisement.name ?? 'Unknown'} RSSI: ${event.rssi}');
       final deviceName = event.advertisement.name;
       if (deviceName != null && deviceName.isNotEmpty && !_discoveredPeripherals.containsKey(event.peripheral.uuid.toString())) {
         _discoveredPeripherals[event.peripheral.uuid.toString()] = event.peripheral;
@@ -138,7 +139,9 @@ class UwbBleManager {
 
   Future<void> _connectAndDiscover(Peripheral peripheral, String peerDeviceName, int rssi) async {
     try {
+      debugPrint('Connecting to ${peerDeviceName}...');
       await _centralManager.connect(peripheral);
+      debugPrint('Connected to ${peerDeviceName}.');
 
       _connectionStateSubscriptions[peripheral.uuid.toString()] = _centralManager.connectionStateChanged.listen((event) {
         if (event.peripheral == peripheral && event.state == ConnectionState.disconnected) {
