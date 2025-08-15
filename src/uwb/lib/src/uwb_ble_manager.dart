@@ -80,12 +80,12 @@ class UwbBleManager {
   }
 
   Future<void> _handleState(BluetoothLowEnergyState state) async {
-    debugPrint("[UWB BLE MANAGER] State changed: $state");
+    print("[UWB BLE MANAGER] State changed: $state");
     switch (state) {
       case BluetoothLowEnergyState.poweredOn:
         if (!_isActive) {
           _isActive = true;
-          debugPrint("[UWB BLE MANAGER] BLE powered on. Starting operations.");
+          print("[UWB BLE MANAGER] BLE powered on. Starting operations.");
           if (Platform.isAndroid) {
             _peripheralManager = PeripheralManager();
           }
@@ -94,12 +94,12 @@ class UwbBleManager {
         }
         break;
       case BluetoothLowEnergyState.unauthorized:
-        debugPrint("[UWB BLE MANAGER] BLE unauthorized. Requesting authorization.");
+        print("[UWB BLE MANAGER] BLE unauthorized. Requesting authorization.");
         await _centralManager.authorize();
         break;
       default:
         if (_isActive) {
-          debugPrint("[UWB BLE MANAGER] BLE state is $state. Stopping operations.");
+          print("[UWB BLE MANAGER] BLE state is $state. Stopping operations.");
           _isActive = false;
           await _stopAdvertising();
           await _stopDiscovery();
@@ -113,7 +113,7 @@ class UwbBleManager {
       final peripheral = _discoveredPeripherals[event.central.uuid.toString()];
       if (peripheral != null) {
         final deviceName = _peripheralIdToName[peripheral.uuid.toString()] ?? 'Unknown Device';
-        debugPrint('Received handshake data from $deviceName');
+        print('Received handshake data from $deviceName');
         _bleDataReceivedController.add(BleDataReceived(peripheral: peripheral, data: event.request.value));
       }
     });
@@ -177,7 +177,7 @@ class UwbBleManager {
       final platformCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _platformCharacteristicUuid);
       final platformBytes = await _centralManager.readCharacteristic(peripheral, platformCharacteristic);
       final platform = utf8.decode(platformBytes);
-      debugPrint('Discovered peer: $peerDeviceName on platform: $platform');
+      print('Discovered peer: $peerDeviceName on platform: $platform');
       
       final handshakeCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
       _handshakeCharacteristics[peripheral.uuid.toString()] = handshakeCharacteristic;
@@ -185,7 +185,7 @@ class UwbBleManager {
       _notifySubscription = _centralManager.characteristicNotified.listen((event) {
         if (event.characteristic.uuid == _handshakeCharacteristicUuid) {
           final deviceName = _peripheralIdToName[event.peripheral.uuid.toString()] ?? 'Unknown Device';
-          debugPrint('Received handshake data from $deviceName');
+          print('Received handshake data from $deviceName');
           _bleDataReceivedController.add(BleDataReceived(peripheral: event.peripheral, data: event.value));
         }
       });
@@ -193,7 +193,7 @@ class UwbBleManager {
       final peer = DiscoveredPeer(peripheral: peripheral, deviceName: peerDeviceName, platform: platform, rssi: rssi);
       _peerDiscoveredController.add(peer);
     } catch (e) {
-      debugPrint("Error connecting to peripheral: $e");
+      print("Error connecting to peripheral: $e");
       _cleanupConnection(peripheral);
     }
   }
@@ -205,10 +205,10 @@ class UwbBleManager {
       if (handshakeCharacteristic == null) {
         throw Exception('Handshake characteristic not found for $deviceName');
       }
-      debugPrint('Sending handshake data to $deviceName');
+      print('Sending handshake data to $deviceName');
       await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: data, type: GATTCharacteristicWriteType.withoutResponse);
     } catch (e) {
-      debugPrint("Error sending handshake data: $e");
+      print("Error sending handshake data: $e");
     }
   }
 
@@ -233,7 +233,7 @@ class UwbBleManager {
     _connectionStateSubscriptions.remove(peripheral.uuid.toString());
     _peripheralIdToName.remove(peripheral.uuid.toString());
     _handshakeCharacteristics.remove(peripheral.uuid.toString());
-    _centralManager.disconnect(peripheral).catchError((e) => debugPrint("Error disconnecting: $e"));
+    _centralManager.disconnect(peripheral).catchError((e) => print("Error disconnecting: $e"));
   }
 
   Future<void> _stopAdvertising() async {
