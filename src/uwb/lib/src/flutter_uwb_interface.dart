@@ -152,7 +152,7 @@ class FlutterUwb implements UwbFlutterApi {
     }
 
     try {
-      // Case 1: iOS to iOS ranging (uses legacy peer-to-peer method)
+      // Case 1: iOS <-> iOS (Apple Peer Protocol)
       if (Platform.isIOS && peer.platform == 'ios') {
         debugPrint("[UWB INTERFACE] iOS device initiating peer-to-peer handshake with another iOS device.");
         final token = await _hostApi.startIosController();
@@ -160,23 +160,27 @@ class FlutterUwb implements UwbFlutterApi {
         return;
       }
 
-      // Case 2: FiRa Accessory Protocol for cross-platform and Android-to-Android
-      bool isAccessory = false;
+      // Case 2: Android <-> iOS (FiRa Protocol)
       if (Platform.isAndroid && peer.platform == 'ios') {
-        isAccessory = true; // Android is always accessory to iOS
-      } else if (Platform.isAndroid && peer.platform == 'android') {
-        isAccessory = _localDeviceName!.compareTo(peer.deviceName) < 0;
-      } else if (Platform.isIOS && peer.platform == 'android') {
-        isAccessory = false; // iOS is always controller to Android
-      }
-
-      if (isAccessory) {
-        debugPrint("[UWB INTERFACE] Accessory (${Platform.operatingSystem}) initiating handshake with ${peer.deviceName}.");
+        // Android is always the accessory, it sends its address first.
+        debugPrint("[UWB INTERFACE] Android (Accessory) initiating handshake with iOS (Controller).");
         final accessoryAddress = await _hostApi.getAccessoryAddress();
         await _bleManager!.sendHandshakeData(peer.peripheral, accessoryAddress);
-      } else {
-        debugPrint("[UWB INTERFACE] Controller (${Platform.operatingSystem}) waiting for accessory handshake from ${peer.deviceName}.");
-        // Controller waits for the accessory to send its address first.
+      } else if (Platform.isIOS && peer.platform == 'android') {
+        // iOS is always the controller, it waits for the accessory's address.
+        debugPrint("[UWB INTERFACE] iOS (Controller) waiting for handshake from Android (Accessory).");
+      }
+
+      // Case 3: Android <-> Android (FiRa Protocol)
+      else if (Platform.isAndroid && peer.platform == 'android') {
+        final isAccessory = _localDeviceName!.compareTo(peer.deviceName) < 0;
+        if (isAccessory) {
+          debugPrint("[UWB INTERFACE] Android (Accessory) initiating handshake with Android (Controller).");
+          final accessoryAddress = await _hostApi.getAccessoryAddress();
+          await _bleManager!.sendHandshakeData(peer.peripheral, accessoryAddress);
+        } else {
+          debugPrint("[UWB INTERFACE] Android (Controller) waiting for handshake from Android (Accessory).");
+        }
       }
     } catch (e) {
       _rangingErrorController.add("Error during handshake initiation: $e");
@@ -188,18 +192,21 @@ class FlutterUwb implements UwbFlutterApi {
     if (peer == null || _serviceUUIDDigest == null || _localDeviceName == null) return;
 
     try {
-      // Legacy path for iOS-to-iOS peer ranging
+      // Case 1: iOS <-> iOS (Apple Peer Protocol)
       if (Platform.isIOS && peer.platform == 'ios') {
         debugPrint("[UWB INTERFACE] iOS received token from iOS peer. Starting accessory mode.");
         await _hostApi.startIosAccessory(event.data);
         return;
       }
 
-      // --- New FiRa Accessory Protocol ---
+      // --- FiRa Accessory Protocol ---
       bool isController = false;
+      // An iOS device is always the controller to an Android accessory.
       if (Platform.isIOS && peer.platform == 'android') {
         isController = true;
-      } else if (Platform.isAndroid && peer.platform == 'android') {
+      } 
+      // For Android-to-Android, the device with the lexicographically greater name is the controller.
+      else if (Platform.isAndroid && peer.platform == 'android') {
         isController = _localDeviceName!.compareTo(peer.deviceName) > 0;
       }
       
@@ -243,7 +250,6 @@ class FlutterUwb implements UwbFlutterApi {
 
   @override
   void onRangingResult(RangingResult result) {
-    // This logic might need adjustment based on how peer addresses are now handled
     final peer = _activePeers.values.firstWhere((p) => p.deviceName == result.deviceName, orElse: () => _activePeers.values.first);
     final updatedPeer = UwbPeer(
       peerAddress: peer.peripheral.uuid.toString(),
