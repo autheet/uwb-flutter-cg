@@ -136,14 +136,20 @@ class FlutterUwb implements UwbFlutterApi {
       platform: peer.platform,
       rssi: peer.rssi,
     ));
-    _initiateHandshake(peer);
+    initiateHandshake(peer.peripheral.uuid.toString());
   }
   
   void _handlePeerLost(DiscoveredPeer peer) {
     _activePeers.remove(peer.peripheral.uuid.toString());
   }
 
-  Future<void> _initiateHandshake(DiscoveredPeer peer) async {
+  Future<void> initiateHandshake(String peerAddress) async {
+    final peer = _activePeers[peerAddress];
+    if (peer == null) {
+      print("[UWB INTERFACE] Error: Peer not found for address $peerAddress");
+      return;
+    }
+
     final localDeviceName = _localDeviceName;
     if (localDeviceName == null) return;
     
