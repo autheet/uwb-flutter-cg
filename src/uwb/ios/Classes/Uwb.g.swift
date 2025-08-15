@@ -284,10 +284,10 @@ public protocol UwbHostApi {
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
-class UwbHostApiSetup {
+public class UwbHostApiSetup {
   static var codec: FlutterStandardMessageCodec { UwbPigeonCodec.shared }
   /// Sets up an instance of `UwbHostApi` to handle messages through the `binaryMessenger`.
-  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: UwbHostApi?, messageChannelSuffix: String = "") {
+  public static func setUp(binaryMessenger: FlutterBinaryMessenger, api: UwbHostApi?, messageChannelSuffix: String = "") {
     let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
     let startChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.uwb.UwbHostApi.start\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
