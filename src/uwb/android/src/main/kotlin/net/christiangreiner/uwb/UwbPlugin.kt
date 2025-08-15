@@ -61,7 +61,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     override fun stop(callback: (Result<Unit>) -> Unit) {
         rangingJob?.cancel()
         rangingJob = null
-        clientSessionScope?.close()
+        clientSessionScope?.cancel()
         clientSessionScope = null
         uwbManager = null
         callback(Result.success(Unit))
@@ -76,7 +76,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
             try {
                 // For the accessory (controlee) role, we establish the session scope.
                 // The localAddress from this scope is the data sent to the controller.
-                clientSessionScope?.close() // Ensure any old session is closed.
+                clientSessionScope?.cancel() // Ensure any old session is closed.
                 val sessionScope = manager.controleeSessionScope()
                 clientSessionScope = sessionScope
                 callback(Result.success(sessionScope.localAddress.address))
@@ -91,7 +91,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
         scope.launch {
             try {
-                clientSessionScope?.close() // Ensure any old session is closed.
+                clientSessionScope?.cancel() // Ensure any old session is closed.
                 val sessionScope = manager.controllerSessionScope()
                 clientSessionScope = sessionScope
 

@@ -1,5 +1,12 @@
 # Flutter Plugin for using UWB
 
+dart run pigeon \
+  --input uwb-flutter-cg/src/uwb/pigeons/uwb.dart \
+  --dart_out uwb-flutter-cg/src/uwb/lib/src/uwb.g.dart \
+  --kotlin_out uwb-flutter-cg/src/uwb/android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt \
+  --kotlin_package "net.christiangreiner.uwb" \
+  --swift_out uwb-flutter-cg/src/uwb/ios/Classes/Uwb.g.swift
+
 
 ### Fork Information: Cross-Platform Refactoring
 
