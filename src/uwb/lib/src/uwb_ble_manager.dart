@@ -42,6 +42,7 @@ class UwbBleManager {
 
   final Map<String, Peripheral> _discoveredPeripherals = {};
   final Map<String, String> _peripheralIdToName = {};
+  final Map<String, GATTCharacteristic> _handshakeCharacteristics = {};
   final Map<String, StreamSubscription> _connectionStateSubscriptions = {};
 
   bool _isActive = false;
@@ -179,6 +180,7 @@ class UwbBleManager {
       debugPrint('Discovered peer: $peerDeviceName on platform: $platform');
       
       final handshakeCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
+      _handshakeCharacteristics[peripheral.uuid.toString()] = handshakeCharacteristic;
       await _centralManager.setCharacteristicNotifyState(peripheral, handshakeCharacteristic, state: true);
       _notifySubscription = _centralManager.characteristicNotified.listen((event) {
         if (event.characteristic.uuid == _handshakeCharacteristicUuid) {
@@ -199,10 +201,11 @@ class UwbBleManager {
   Future<void> sendHandshakeData(Peripheral peripheral, Uint8List data) async {
     try {
       final deviceName = _peripheralIdToName[peripheral.uuid.toString()] ?? 'Unknown Device';
+      final handshakeCharacteristic = _handshakeCharacteristics[peripheral.uuid.toString()];
+      if (handshakeCharacteristic == null) {
+        throw Exception('Handshake characteristic not found for $deviceName');
+      }
       debugPrint('Sending handshake data to $deviceName');
-      final services = await _centralManager.discoverGATT(peripheral);
-      final service = services.firstWhere((s) => s.uuid == _serviceUuid);
-      final handshakeCharacteristic = service.characteristics.firstWhere((c) => c.uuid == _handshakeCharacteristicUuid);
       await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: data, type: GATTCharacteristicWriteType.withResponse);
     } catch (e) {
       debugPrint("Error sending handshake data: $e");
@@ -218,6 +221,7 @@ class UwbBleManager {
     _notifySubscription?.cancel();
     _discoveredPeripherals.values.forEach(_cleanupConnection);
     _peripheralIdToName.clear();
+    _handshakeCharacteristics.clear();
     _discoveredPeripherals.clear();
     _peerDiscoveredController.close();
     _peerLostController.close();
@@ -228,6 +232,7 @@ class UwbBleManager {
     _connectionStateSubscriptions[peripheral.uuid.toString()]?.cancel();
     _connectionStateSubscriptions.remove(peripheral.uuid.toString());
     _peripheralIdToName.remove(peripheral.uuid.toString());
+    _handshakeCharacteristics.remove(peripheral.uuid.toString());
     _centralManager.disconnect(peripheral).catchError((e) => debugPrint("Error disconnecting: $e"));
   }
 

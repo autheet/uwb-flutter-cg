@@ -149,16 +149,20 @@ class FlutterUwb implements UwbFlutterApi {
     
     try {
       if (Platform.isAndroid && peer.platform == 'ios') {
+        // Add a delay to allow the iOS central to discover services
+        await Future.delayed(const Duration(milliseconds: 500));
         debugPrint("[UWB INTERFACE] Android device is accessory. Getting accessory config data.");
         final accessoryConfigData = await _hostApi.getAndroidAccessoryConfigurationData();
         debugPrint("[UWB INTERFACE] Sending Android accessory config to iOS peer via BLE.");
         await _bleManager!.sendHandshakeData(peer.peripheral, accessoryConfigData);
-      } else if (Platform.isIOS && peer.platform == 'android') {
-        // iOS is the controller, but it waits for the Android accessory to send its config first.
-        // No action is needed here, the process is initiated by the accessory.
       } else {
-        // iOS-to-iOS or Android-to-Android
-        bool isController = localDeviceName.compareTo(peer.deviceName) < 0;
+        bool isController = false;
+        if (Platform.isIOS && peer.platform == 'android') {
+          isController = true;
+        } else if (localDeviceName.compareTo(peer.deviceName) < 0) {
+          isController = true;
+        }
+
         if (isController) {
           if (Platform.isIOS) {
             debugPrint("[UWB INTERFACE] iOS device is controller to another iOS. Getting token from native.");
@@ -185,7 +189,6 @@ class FlutterUwb implements UwbFlutterApi {
         debugPrint("[UWB INTERFACE] iOS received token from iOS peer. Passing to native to start accessory mode.");
         await _hostApi.startIosAccessory(event.data);
       } 
-      // This device is iOS (controller) and it has received the initial config from the Android accessory.
       else if (Platform.isIOS && peer.platform == 'android') {
         debugPrint("[UWB INTERFACE] iOS (Controller) received accessory config from Android. Passing to native to initialize.");
         final shareableConfig = await _hostApi.initializeAndroidController(event.data, sessionKeyInfo, sessionId.toInt());
@@ -194,7 +197,6 @@ class FlutterUwb implements UwbFlutterApi {
         debugPrint("[UWB INTERFACE] iOS starting ranging with Android peer.");
         await _hostApi.startAndroidRanging(shareableConfig, true, sessionKeyInfo, sessionId.toInt());
       } 
-      // This device is Android (accessory) and it has received the shareable config back from the iOS controller.
       else if (Platform.isAndroid && peer.platform == 'ios') {
         debugPrint("[UWB INTERFACE] Android (Accessory) received shareable config from iOS. Passing to native to start ranging.");
         await _hostApi.startAndroidRanging(event.data, false, sessionKeyInfo, sessionId.toInt());
