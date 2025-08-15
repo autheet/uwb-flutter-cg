@@ -206,7 +206,7 @@ class UwbBleManager {
         throw Exception('Handshake characteristic not found for $deviceName');
       }
       debugPrint('Sending handshake data to $deviceName');
-      await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: data, type: GATTCharacteristicWriteType.withResponse);
+      await _centralManager.writeCharacteristic(peripheral, handshakeCharacteristic, value: data, type: GATTCharacteristicWriteType.withoutResponse);
     } catch (e) {
       debugPrint("Error sending handshake data: $e");
     }
