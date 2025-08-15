@@ -29,7 +29,7 @@ class BleDataReceived {
 /// Manages all BLE discovery and communication for the UWB handshake.
 class UwbBleManager {
   final CentralManager _centralManager;
-  final PeripheralManager _peripheralManager;
+  PeripheralManager _peripheralManager;
   final UUID _serviceUuid;
   final UUID _handshakeCharacteristicUuid;
   final UUID _platformCharacteristicUuid;
@@ -80,6 +80,9 @@ class UwbBleManager {
   Future<void> _handleState(BluetoothLowEnergyState state) async {
     if (state == BluetoothLowEnergyState.poweredOn && !_isActive) {
       _isActive = true;
+      if (Platform.isAndroid) {
+        _peripheralManager = PeripheralManager();
+      }
       await _startAdvertising();
       await _startDiscovery();
     } else if (state != BluetoothLowEnergyState.poweredOn) {
@@ -110,6 +113,8 @@ class UwbBleManager {
       descriptors: [],
     );
 
+    await _peripheralManager.removeAllServices();
+    
     await _peripheralManager.addService(
       GATTService(
         uuid: _serviceUuid,
