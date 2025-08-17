@@ -274,13 +274,13 @@ class UwbPigeonCodec: FlutterStandardMessageCodec, @unchecked Sendable {
 
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 public protocol UwbHostApi {
-  func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void)
-  func stop(completion: @escaping (Result<Void, Error>) -> Void)
-  func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
-  func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void)
-  func getAccessoryAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void)
-  func generateControllerConfig(accessoryAddress: FlutterStandardTypedData, sessionKeyInfo: FlutterStandardTypedData, sessionId: Int64, completion: @escaping (Result<UwbConfig, Error>) -> Void)
-  func startAccessoryRanging(config: UwbConfig, completion: @escaping (Result<Void, Error>) -> Void)
+  func start(deviceName: String, serviceUUIDDigest: String) async throws
+  func stop() async throws
+  func startIosController() async throws -> FlutterStandardTypedData
+  func startIosAccessory(token: FlutterStandardTypedData) async throws
+  func getAccessoryAddress() async throws -> FlutterStandardTypedData
+  func generateControllerConfig(accessoryAddress: FlutterStandardTypedData, sessionKeyInfo: FlutterStandardTypedData, sessionId: Int64) async throws -> UwbConfig
+  func startAccessoryRanging(config: UwbConfig) async throws
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -295,11 +295,11 @@ public class UwbHostApiSetup {
         let args = message as! [Any?]
         let deviceNameArg = args[0] as! String
         let serviceUUIDDigestArg = args[1] as! String
-        api.start(deviceName: deviceNameArg, serviceUUIDDigest: serviceUUIDDigestArg) { result in
-          switch result {
-          case .success:
+        Task {
+          do {
+            try await api.start(deviceName: deviceNameArg, serviceUUIDDigest: serviceUUIDDigestArg)
             reply(wrapResult(nil))
-          case .failure(let error):
+          } catch {
             reply(wrapError(error))
           }
         }
@@ -310,11 +310,11 @@ public class UwbHostApiSetup {
     let stopChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.uwb.UwbHostApi.stop\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       stopChannel.setMessageHandler { _, reply in
-        api.stop { result in
-          switch result {
-          case .success:
+        Task {
+          do {
+            try await api.stop()
             reply(wrapResult(nil))
-          case .failure(let error):
+          } catch {
             reply(wrapError(error))
           }
         }
@@ -325,11 +325,11 @@ public class UwbHostApiSetup {
     let startIosControllerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.uwb.UwbHostApi.startIosController\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       startIosControllerChannel.setMessageHandler { _, reply in
-        api.startIosController { result in
-          switch result {
-          case .success(let res):
-            reply(wrapResult(res))
-          case .failure(let error):
+        Task {
+          do {
+            let result = try await api.startIosController()
+            reply(wrapResult(result))
+          } catch {
             reply(wrapError(error))
           }
         }
@@ -342,11 +342,11 @@ public class UwbHostApiSetup {
       startIosAccessoryChannel.setMessageHandler { message, reply in
         let args = message as! [Any?]
         let tokenArg = args[0] as! FlutterStandardTypedData
-        api.startIosAccessory(token: tokenArg) { result in
-          switch result {
-          case .success:
+        Task {
+          do {
+            try await api.startIosAccessory(token: tokenArg)
             reply(wrapResult(nil))
-          case .failure(let error):
+          } catch {
             reply(wrapError(error))
           }
         }
@@ -357,11 +357,11 @@ public class UwbHostApiSetup {
     let getAccessoryAddressChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.uwb.UwbHostApi.getAccessoryAddress\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       getAccessoryAddressChannel.setMessageHandler { _, reply in
-        api.getAccessoryAddress { result in
-          switch result {
-          case .success(let res):
-            reply(wrapResult(res))
-          case .failure(let error):
+        Task {
+          do {
+            let result = try await api.getAccessoryAddress()
+            reply(wrapResult(result))
+          } catch {
             reply(wrapError(error))
           }
         }
@@ -376,11 +376,11 @@ public class UwbHostApiSetup {
         let accessoryAddressArg = args[0] as! FlutterStandardTypedData
         let sessionKeyInfoArg = args[1] as! FlutterStandardTypedData
         let sessionIdArg = args[2] as! Int64
-        api.generateControllerConfig(accessoryAddress: accessoryAddressArg, sessionKeyInfo: sessionKeyInfoArg, sessionId: sessionIdArg) { result in
-          switch result {
-          case .success(let res):
-            reply(wrapResult(res))
-          case .failure(let error):
+        Task {
+          do {
+            let result = try await api.generateControllerConfig(accessoryAddress: accessoryAddressArg, sessionKeyInfo: sessionKeyInfoArg, sessionId: sessionIdArg)
+            reply(wrapResult(result))
+          } catch {
             reply(wrapError(error))
           }
         }
@@ -393,11 +393,11 @@ public class UwbHostApiSetup {
       startAccessoryRangingChannel.setMessageHandler { message, reply in
         let args = message as! [Any?]
         let configArg = args[0] as! UwbConfig
-        api.startAccessoryRanging(config: configArg) { result in
-          switch result {
-          case .success:
+        Task {
+          do {
+            try await api.startAccessoryRanging(config: configArg)
             reply(wrapResult(nil))
-          case .failure(let error):
+          } catch {
             reply(wrapError(error))
           }
         }

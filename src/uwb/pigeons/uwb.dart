@@ -17,17 +17,26 @@ class RangingResult {
 /// are using the exact same settings for the ranging session.
 class UwbConfig {
   /// Corresponds to RangingParameters.UwbConfigId (e.g., CONFIG_UNICAST_DS_TWR).
-  late int uwbConfigId;
+  final int uwbConfigId;
   /// The session ID for the ranging interaction.
-  late int sessionId;
+  final int sessionId;
   /// The session key for securing the ranging data.
-  late Uint8List sessionKeyInfo;
+  final Uint8List sessionKeyInfo;
   /// The UWB channel to be used.
-  late int channel;
+  final int channel;
   /// The preamble index for the UWB signal.
-  late int preambleIndex;
+  final int preambleIndex;
   /// The UWB address of the peer device (the one not generating this config).
-  late Uint8List peerAddress;
+  final Uint8List peerAddress;
+
+  UwbConfig({
+    required this.uwbConfigId,
+    required this.sessionId,
+    required this.sessionKeyInfo,
+    required this.channel,
+    required this.preambleIndex,
+    required this.peerAddress,
+  });
 }
 
 // --- API Definitions ---
