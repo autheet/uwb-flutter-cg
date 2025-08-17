@@ -267,7 +267,7 @@ private class UwbPigeonCodecReaderWriter: FlutterStandardReaderWriter {
   }
 }
 
-class UwbPigeonCodec: FlutterStandardMessageCodec, @unchecked Sendable {
+public class UwbPigeonCodec: FlutterStandardMessageCodec, @unchecked Sendable {
   static let shared = UwbPigeonCodec(readerWriter: UwbPigeonCodecReaderWriter())
 }
 
