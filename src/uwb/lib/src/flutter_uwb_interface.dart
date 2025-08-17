@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart'; // Add this import for PlatformException
 import 'package:uuid/uuid.dart';
 import 'package:uwb/src/uwb.g.dart';
 import 'package:uwb/src/uwb_ble_manager.dart';
@@ -81,7 +82,6 @@ class FlutterUwb implements UwbFlutterApi {
     } else if (Platform.isIOS) {
       statuses = await [
         Permission.bluetooth,
-        Permission.nearbyWifiDevices,
       ].request();
     } else {
       return;
@@ -114,7 +114,20 @@ class FlutterUwb implements UwbFlutterApi {
     _bleDataReceivedSubscription = _bleManager!.bleDataReceivedStream.listen(_handleBleDataReceived);
     
     await _bleManager!.start();
-    await _hostApi.start(deviceName, serviceUUIDDigest);
+
+    try {
+      await _hostApi.start(deviceName, serviceUUIDDigest);
+    } on PlatformException catch (e) {
+      // Catch the specific permission error from the native iOS code
+      if (e.code == 'PERMISSION_DENIED') {
+        debugPrint("[UWB INTERFACE] Native iOS permission denied. Opening app settings.");
+        // Guide the user to the settings app to manually enable the permission.
+        await openAppSettings();
+      } else {
+        // Re-throw any other platform exceptions
+        rethrow;
+      }
+    }
   }
 
   Future<void> stop() async {
