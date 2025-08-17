@@ -15,6 +15,8 @@ import androidx.core.uwb.rxjava3.rangingResultsObservable
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.reactivex.rxjava3.disposables.Disposable
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 
 // Import the generated Pigeon classes
 import net.christiangreiner.uwb.RangingResult as PigeonRangingResult
@@ -23,6 +25,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
 
     private var appContext: Context? = null
     private var flutterApi: UwbFlutterApi? = null
+    private val pluginScope = CoroutineScope(Dispatchers.Main) // CoroutineScope for plugin operations
     
     private var uwbManager: UwbManager? = null
     private var clientSessionScope: UwbClientSessionScope? = null
@@ -38,6 +41,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
         UwbHostApi.setUp(binding.binaryMessenger, null)
         appContext = null
         flutterApi = null
+        pluginScope.cancel() // Cancel the scope when the plugin is detached
     }
     
     // --- Session Management ---
@@ -51,7 +55,7 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     override fun stop(callback: (Result<Unit>) -> Unit) {
         rangingDisposable?.dispose()
         rangingDisposable = null
-        clientSessionScope?.cancel()
+ pluginScope.cancel() // Cancel the scope
         clientSessionScope = null
         uwbManager = null
         callback(Result.success(Unit))
@@ -62,9 +66,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     @SuppressLint("CheckResult")
     override fun getAccessoryAddress(callback: (Result<ByteArray>) -> Unit) {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
-        clientSessionScope?.cancel()
-        manager.controleeSessionScopeSingle()
-            .subscribe(
+ pluginScope.launch {
+ try {
+ val sessionScope = manager.controleeSessionScopeSingle().await() // Use await() for Single
                 { sessionScope ->
                     clientSessionScope = sessionScope
                     callback(Result.success(sessionScope.localAddress.address))
@@ -76,9 +80,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     @SuppressLint("CheckResult")
     override fun generateControllerConfig(accessoryAddress: ByteArray, sessionKeyInfo: ByteArray, sessionId: Long, callback: (Result<UwbConfig>) -> Unit) {
         val manager = uwbManager ?: return callback(Result.failure(Exception("UwbManager not initialized")))
-        clientSessionScope?.cancel()
-        manager.controllerSessionScopeSingle()
-            .subscribe(
+ pluginScope.launch {
+ try {
+ val sessionScope = manager.controllerSessionScopeSingle().await() // Use await() for Single
                 { sessionScope ->
                     clientSessionScope = sessionScope
                     val peerAddress = UwbAddress(accessoryAddress)
@@ -120,9 +124,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
     }
 
     override fun startAccessoryRanging(config: UwbConfig, callback: (Result<Unit>) -> Unit) {
-        val sessionScope = clientSessionScope ?: return callback(Result.failure(Exception("UwbClientSessionScope not initialized.")))
-        
-        val controllerAddress = UwbAddress(config.peerAddress)
+ pluginScope.launch {
+ try {
+ val sessionScope = clientSessionScope ?: return@launch callback(Result.failure(Exception("UwbClientSessionScope not initialized.")))
         val complexChannel = UwbComplexChannel(config.channel.toInt(), config.preambleIndex.toInt())
 
         val rangingParameters = RangingParameters(
@@ -135,14 +139,16 @@ class UwbPlugin : FlutterPlugin, UwbHostApi {
             peerDevices = listOf(UwbDevice.createForAddress(controllerAddress.address)),
             updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC
         )
+ val controllerAddress = UwbAddress(config.peerAddress)
 
         rangingDisposable?.dispose()
         rangingDisposable = sessionScope.rangingResultsObservable(rangingParameters)
-            .subscribe(
-                { handleRangingResult(it) },
-                { error -> flutterApi?.onRangingError(error.toString()) {} }
-            )
+ .subscribe(
+ { handleRangingResult(it) },
+ { error -> flutterApi?.onRangingError(error.toString()) {} }
+ )
         callback(Result.success(Unit))
+ } catch (e: Exception) { callback(Result.failure(e)) }
     }
     
     private fun handleRangingResult(result: RangingResult) {

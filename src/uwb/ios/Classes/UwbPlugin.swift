@@ -22,26 +22,43 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
     // MARK: - Session Management
     
     public func start(deviceName: String, serviceUUIDDigest: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        NSLog("[UWB Native iOS] Initializing NISession.")
-        niSession = NISession()
-        niSession?.delegate = self
-        completion(.success(Void()))
+        Task {
+            NSLog("[UWB Native iOS] Initializing NISession.")
+            niSession = NISession()
+            niSession?.delegate = self
+            completion(.success(Void()))
+        }
     }
 
     public func stop(completion: @escaping (Result<Void, Error>) -> Void) {
+        Task {
+            NSLog("[UWB Native iOS] Invalidating NISession.")
+            niSession?.invalidate()
+            niSession = nil
+            completion(.success(Void()))
+        }
+    }
+
+    public func start(deviceName: String, serviceUUIDDigest: String) async throws {
+        NSLog("[UWB Native iOS] Initializing NISession.")
+        niSession = NISession()
+        niSession?.delegate = self
+    }
+
+    public func stop() async throws {
         NSLog("[UWB Native iOS] Invalidating NISession.")
         niSession?.invalidate()
         niSession = nil
-        completion(.success(Void()))
     }
+
 
     // MARK: - iOS Peer-to-Peer Ranging (Apple devices only)
     
     // This uses NINearbyPeerConfiguration and is kept for iOS-iOS functionality.
-    public func startIosController(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+    public func startIosController() async throws -> FlutterStandardTypedData {
         NSLog("[UWB Native iOS] Generating discovery token for Apple Peer-to-Peer.")
         guard let token = niSession?.discoveryToken else {
-            return completion(.failure(FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Peer-to-Peer", details: nil)))
+            throw FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Peer-to-Peer", details: nil)
         }
         do {
             let tokenData = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
@@ -51,11 +68,11 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
         }
     }
 
-    public func startIosAccessory(token: FlutterStandardTypedData, completion: @escaping (Result<Void, Error>) -> Void) {
+    public func startIosAccessory(token: FlutterStandardTypedData) async throws {
         NSLog("[UWB Native iOS] Starting accessory role with Apple Peer token.")
         do {
             guard let discoveryToken = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: token.data) else {
-                return completion(.failure(FlutterError(code: "UWB_ERROR", message: "Invalid discovery token data for Peer-to-Peer", details: nil)))
+                throw FlutterError(code: "UWB_ERROR", message: "Invalid discovery token data for Peer-to-Peer", details: nil)
             }
             let config = NINearbyPeerConfiguration(peerToken: discoveryToken)
             niSession?.run(config)
@@ -68,12 +85,11 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
     // MARK: - FiRa Accessory Ranging (Cross-Platform)
 
     // Step 1: An accessory (iOS) gets its own UWB address to share with a controller.
-    public func getAccessoryAddress(completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
+    public func getAccessoryAddress() async throws -> FlutterStandardTypedData {
         NSLog("[UWB Native iOS] Getting accessory address (discovery token).")
         guard let token = niSession?.discoveryToken else {
-            return completion(.failure(FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Accessory role", details: nil)))
+            throw FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Accessory role", details: nil)
         }
-        do {
             let tokenData = try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
             completion(.success(FlutterStandardTypedData(bytes: tokenData)))
         } catch {
@@ -82,10 +98,10 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
     }
 
     // Step 2: A controller (iOS) takes an accessory's address and generates the full config for the session.
-    public func generateControllerConfig(accessoryAddress: FlutterStandardTypedData, sessionKeyInfo: FlutterStandardTypedData, sessionId: Int64, completion: @escaping (Result<UwbConfig, Error>) -> Void) {
+    public func generateControllerConfig(accessoryAddress: FlutterStandardTypedData, sessionKeyInfo: FlutterStandardTypedData, sessionId: Int64) async throws -> UwbConfig {
         NSLog("[UWB Native iOS] Generating FiRa configuration for accessory.")
         guard let token = niSession?.discoveryToken else {
-             return completion(.failure(FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Controller role", details: nil)))
+            throw FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Controller role", details: nil)
         }
         
         do {
@@ -106,12 +122,11 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
                 preambleIndex: 10,
                 peerAddress: try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
             )
-            completion(.success(uwbConfig))
+            return uwbConfig
         } catch {
-            completion(.failure(FlutterError(code: "UWB_ERROR", message: "Failed to generate controller configuration: \(error.localizedDescription)", details: nil)))
+            throw FlutterError(code: "UWB_ERROR", message: "Failed to generate controller configuration: \(error.localizedDescription)", details: nil)
         }
     }
-
     // Step 3: An accessory (iOS) receives the full config from the controller and starts ranging.
     public func startAccessoryRanging(config: UwbConfig, completion: @escaping (Result<Void, Error>) -> Void) {
         NSLog("[UWB Native iOS] Starting accessory ranging with config from controller.")
@@ -121,6 +136,15 @@ public class UwbPlugin: NSObject, FlutterPlugin, UwbHostApi, NISessionDelegate {
         completion(.success(Void()))
     }
     
+
+    // Step 1: An accessory (iOS) gets its own UWB address to share with a controller.
+    public func getAccessoryAddress() async throws -> FlutterStandardTypedData {
+        NSLog("[UWB Native iOS] Getting accessory address (discovery token).")
+        guard let token = niSession?.discoveryToken else {
+            throw FlutterError(code: "UWB_ERROR", message: "Missing discovery token for Accessory role", details: nil)
+        }
+        return try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true).toFlutterStandardTypedData()
+    }
     // MARK: - NISessionDelegate
     
     public func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
