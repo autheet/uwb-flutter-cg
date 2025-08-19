@@ -29,8 +29,8 @@ android {
         namespace 'net.christiangreiner.uwb'
     }
 
-    ndkVersion "25.1.8937393"
-    compileSdk 34
+    ndkVersion "26.3.11579264"
+    compileSdk 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8

@@ -24,8 +24,8 @@ if (flutterVersionName == null) {
 
 android {
     namespace "net.christiangreiner.uwb_example"
-    ndkVersion "25.1.8937393"
-    compileSdkVersion 34
+    ndkVersion "26.3.11579264"
+    compileSdkVersion 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
