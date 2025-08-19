@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:uwb/src/uwb_ble_manager.dart';
+import 'package:uwb/src/uuid_generator.dart';
 import 'package:flutter/services.dart';
 import 'package:uwb/flutter_uwb.dart';
 import 'package:uwb/src/uwb_platform_interface.dart';
 
-// UWB Instance for Plugin
+// UWB Instance for Plugin, managing both BLE and UWB
 class Uwb extends UwbPlatform {
   /// Returns a list of all discovered devices
   /// This list is updated whenever a new device is discovered, lost, connected
@@ -48,25 +51,60 @@ class Uwb extends UwbPlatform {
 
   // Stream Channels Setup
   final UwbHostApi _hostApi = UwbHostApi();
-  final EventChannel _uwbDataChannel = const EventChannel('uwb_plugin/uwbData');
+  // The _uwbDataChannel is removed as ranging results will come via Pigeon
+  // final EventChannel _uwbDataChannel = const EventChannel('uwb_plugin/uwbData');
   late UwbFlutterApiHandler _flutterApiHandler;
+  late UwbBleManager _bleManager;
+  final Map<String, DiscoveredPeer> _discoveredBlePeers = {};
+  // Assume authenticatingDeviceName is available as a class member
+  String? _authenticatingDeviceName;
+  String? _auHourlyDigest;
 
-  Uwb() {
+  Uwb({String? authenticatingDeviceName}) : _authenticatingDeviceName = authenticatingDeviceName {
     // Setup UWB API Handler
     _flutterApiHandler = UwbFlutterApiHandler(
       onDiscoveryDeviceFound: _onDiscoveryDeviceFound,
       onDiscoveryDeviceLost: _onDiscoveryDeviceLost,
-      onDiscoveryDeviceConnected: _onDiscoveryDeviceConnected,
-      onDiscoveryDeviceDisconnected: _onDiscoveryDeviceDisconnected,
+      onDiscoveryDeviceConnected: _onDiscoveryDeviceConnected, // Keep native callbacks for now
+      onDiscoveryDeviceDisconnected: _onDiscoveryDeviceDisconnected, // Keep native callbacks for now
       onDiscoveryDeviceRejected: _onDiscoveryDeviceRejected,
       onDiscoveryConnectionRequestReceived:
           _onDiscoveryConnectionRequestReceived,
+      // We might need to introduce new callbacks or modify existing ones
+      // to handle BLE-specific handshake events and trigger native UWB ranging.
+      // For now, I'll keep the existing UWB session callbacks.
+      // onUwbSessionStarted: _onUwbSessionStarted,
       onPermissionRequired: _onPermissionRequired,
       onUwbSessionStarted: _onUwbSessionStarted,
       onUwbSessionDisconnected: _onUwbSessionDisconnected,
     );
 
     UwbFlutterApi.setup(_flutterApiHandler);
+
+    // Initialize BLE Manager later in discoverDevices when digest is available
+  }
+
+  void _initializeBleManager() {
+    // Derive UUIDs using auHourlyDigest
+    final serviceUuid = generateUuid(Uint8List.fromList(utf8.encode(_auHourlyDigest!)), 'uwb_service');
+    final handshakeCharacteristicUuid = generateUuid(Uint8List.fromList(utf8.encode(_auHourlyDigest!)), 'uwb_handshake');
+    final platformCharacteristicUuid = generateUuid(Uint8List.fromList(utf8.encode(_auHourlyDigest!)), 'uwb_platform');
+    _bleManager = UwbBleManager(
+    // Listen to BLE discovery streams
+    _bleManager.peerDiscoveredStream.listen(_onBlePeerDiscovered);
+    _bleManager.peerLostStream.listen(_onBlePeerLost);
+    _bleManager.bleDataReceivedStream.listen(_onBleDataReceived);
+  }
+
+  void _onBlePeerDiscovered(DiscoveredPeer peer) {
+    // Check if the device is already discovered via native methods
+    if (_discoveredDevices.containsKey(peer.peripheral.uuid.toString())) {
+      return; // Device already in the list, probably from native discovery
+    }
+    final uwbDevice = UwbDevice(
+        uwbData: null, // UWB data is not available at BLE discovery stage
+        id: peer.peripheral.uuid.toString(), name: peer.deviceName, deviceType: _mapPlatformToDeviceType(peer.platform), state: DeviceState.found, rssi: peer.rssi);
+    _onDiscoveryDeviceFound(uwbDevice);
   }
 
   int maxConnections = -1;
@@ -89,6 +127,11 @@ class Uwb extends UwbPlatform {
     _discoveryStateStream.add(
       DeviceLostState(device),
     );
+  }
+
+  void _onBlePeerLost(DiscoveredPeer peer) {
+     final uwbDevice = UwbDevice(id: peer.peripheral.uuid.toString(), name: peer.deviceName, deviceType: _mapPlatformToDeviceType(peer.platform), state: DeviceState.lost, uwbData: null);
+     _onDiscoveryDeviceLost(uwbDevice);
   }
 
   void _onDiscoveryDeviceConnected(UwbDevice device) {
@@ -115,6 +158,11 @@ class Uwb extends UwbPlatform {
 
   void _onDiscoveryDeviceRejected(UwbDevice device) {
     _discoveryStateStream.add(DeviceInviteRejected(device));
+  }
+
+  void _onBleDataReceived(BleDataReceived data) {
+     // Handle received BLE handshake data here. This data can be used to
+     // exchange UWB configuration parameters for the ranging session.
   }
 
   void _onDiscoveryConnectionRequestReceived(UwbDevice device) {
@@ -153,20 +201,26 @@ class Uwb extends UwbPlatform {
 
   /// Discover nearby devices
   /// [displayName] is the name of the device that will be shown to other devices
+  /// [auHourlyDigest] is used to derive the BLE UUIDs for discovery and handshake.
   @override
-  Future<void> discoverDevices(String deviceName) async {
-    try {
-      return await _hostApi.discoverDevices(deviceName);
-    } on PlatformException catch (e) {
-      _parsePlatformException(e);
-    }
+ Future<void> discoverDevices(String deviceName, String auHourlyDigest) async {
+    _authenticatingDeviceName = deviceName;
+    _auHourlyDigest = auHourlyDigest;
+
+    _initializeBleManager();
+    // Use BLE manager for discovery
+ await _bleManager.start();
   }
 
   @override
   Future<void> stopDiscovery() async {
+    // Use BLE manager to stop discovery
     _discoveredDevices
         .removeWhere((key, value) => value.state != DeviceState.connected);
     _discoveredDevicesStream.add(_discoveredDevices.values);
+
+    await _bleManager.stopDiscovery();
+    // Stop native discovery if it was started - this depends on native implementation
     return await _hostApi.stopDiscovery();
   }
 
@@ -215,7 +269,9 @@ class Uwb extends UwbPlatform {
   /// [device] is the device to connect to
   @override
   Future<void> startRanging(UwbDevice device) async {
-    try {
+    // This method is called after a device is discovered via BLE and
+    // potentially after a BLE handshake. Now, initiate the native UWB ranging session.
+     try {
       return await _hostApi.startRanging(device);
     } on PlatformException catch (e) {
       _parsePlatformException(e);
@@ -228,15 +284,22 @@ class Uwb extends UwbPlatform {
   /// [device] is the device to accept or reject the connection request from
   @override
   Future<void> handleConnectionRequest(UwbDevice device, bool accept) async {
-    try {
+    // This method is called after a connection request is received (likely via BLE handshake).
+    // Handle the request and initiate native UWB ranging if accepted.
+     try {
       return await _hostApi.handleConnectionRequest(device, accept);
     } on PlatformException catch (e) {
       _parsePlatformException(e);
     }
   }
 
-  void dispose() {}
-
+  void dispose() {
+    _bleManager.dispose();
+  }
+  
+  DeviceType _mapPlatformToDeviceType(String platform) {
+    return platform.toLowerCase() == 'android' ? DeviceType.controller : DeviceType.iosdevice; // Basic mapping
+  }
   void _parsePlatformException(PlatformException e) {
     throw UwbException(ErrorCode.values[int.parse(e.code)], e.message);
   }
@@ -310,6 +373,7 @@ class Uwb extends UwbPlatform {
       name: name,
       uwbData: UwbData(
         distance: distance,
+
         azimuth: azimuth,
         elevation: elevation,
         direction: direction,
@@ -318,4 +382,5 @@ class Uwb extends UwbPlatform {
       deviceType: deviceType,
     );
   }
+
 }

@@ -17,6 +17,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
+import androidx.core.uwb.UwbManager
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Status
 import com.google.android.gms.nearby.connection.ConnectionsStatusCodes
@@ -60,7 +61,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
     private lateinit var packageManager: PackageManager
 
     private val REQUEST_CODE_REQUIRED_PERMISSIONS = 1
-    private var REQUIRED_PERMISSIONS: Array<String> = arrayOf()
 
     private lateinit var uwbConnectionManager: UwbConnectionManager
     private lateinit var nearbyManager: NearbyManager
@@ -71,49 +71,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
     private var preambleIndex: Int = -1
     private var sessionKey: Int = 0
 
-    private fun detectRequiredPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            REQUIRED_PERMISSIONS = arrayOf<String>(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.CHANGE_WIFI_STATE,
-                Manifest.permission.NEARBY_WIFI_DEVICES,
-                Manifest.permission.UWB_RANGING
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            REQUIRED_PERMISSIONS = arrayOf<String>(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.CHANGE_WIFI_STATE,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.UWB_RANGING
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            REQUIRED_PERMISSIONS =  arrayOf<String>(
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.CHANGE_WIFI_STATE,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.UWB_RANGING
-            )
-        } else {
-            REQUIRED_PERMISSIONS = arrayOf<String>(
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.CHANGE_WIFI_STATE,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.UWB_RANGING
-            )
-        }
-    }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         appContext = flutterPluginBinding.applicationContext
@@ -131,18 +88,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
         this.uwbConnectionManager = UwbConnectionManager(appContext!!, coroutineScope)
         this.uwbConnectionManager.onUwbRangingStarted = onUwbRangingStartedCallback
 
-        var serviceId: String = getAppLabel(appContext!!)
-        this.nearbyManager = NearbyManager(appContext!!, serviceId)
-        this.nearbyManager.onEndpointFound = onEndpointFoundCallback
-        this.nearbyManager.onEndpointLost = onEndpointLostCallback
-        this.nearbyManager.onEndpointConnectionInitiated = onEndpointConnectionInitiatedCallback
-        this.nearbyManager.onEndpointConnected = onEndpointConnectedCallback
-        this.nearbyManager.onPayloadReceived = onPayloadReceivedCallback
-        this.nearbyManager.onEndpointConnectionRejected = onEndpointConnectionRejected
-        this.nearbyManager.onEndpointConnectionDisconnected = onEndpointConnectionDisconnectedCallback
-        this.nearbyManager.onConnectionError = onConnectionErrorCallback
-
-        detectRequiredPermissions()
     }
 
     private fun getAppLabel(context: Context): String {
@@ -158,11 +103,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
     }
 
     // Flutter API
-    override fun isUwbSupported(callback: (Result<Boolean>) -> Unit) {
-        callback(Result.success(value = this.uwbSupported()))
-    }
-
-    // Flutter API
     override fun startRanging(device: UwbDevice, callback: (Result<Unit>) -> Unit) {
         Log.d(LOG_TAG, "Start Ranging with ${device.name}. Connect to endpoint ${device.id}")
 
@@ -174,45 +114,9 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
         // Device likes to be the controller
         this.isController = true
 
-        nearbyManager.connect(device.id).addOnSuccessListener {
-            callback(Result.success(Unit))
-        }.addOnFailureListener { e ->
-            // cleanup session scopes so other device can be a controller
-            uwbConnectionManager.stopRanging(device.id)
-
-            if (e is ApiException) {
-                if (e.statusCode == ConnectionsStatusCodes.STATUS_ENDPOINT_UNKNOWN) {
-                    callback(Result.failure(
-                       FlutterError(
-                           ErrorCode.OOB_DEVICE_NOT_FOUND.raw.toString(),
-                           "Device ${device.id} not found."
-                       )
-                    ))
-                } else if (e.statusCode == ConnectionsStatusCodes.STATUS_RADIO_ERROR) {
-                    callback(Result.failure(
-                        FlutterError(
-                            ErrorCode.OOB_CONNECTION_ERROR.raw.toString(),
-                            "Connection with Device ${device.id} failed."
-                        )
-                    ))
-                }
-            } else {
-                callback(Result.failure(FlutterError(ErrorCode.OOB_ERROR.raw.toString(), e.message)))
-            }
-        }
     }
 
     // Flutter API
-    override fun stopRanging(device: UwbDevice, callback: (Result<Unit>) -> Unit) {
-        this.nearbyManager.disconnect(device.id)
-        this.uwbConnectionManager.stopRanging(device.id)
-
-        // Restart Discovery so disconnected devices found again
-        this.nearbyManager.restartDiscovery()
-        this.isController = false
-
-        callback(Result.success(Unit))
-    }
 
     // Flutter API
     override fun stopUwbSessions(callback: (Result<Unit>) -> Unit) {
@@ -227,76 +131,11 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
     }
 
     // Flutter API
-    override fun discoverDevices(deviceName: String, callback: (Result<Unit>) -> Unit) {
-        var success = false
-        var errorResult = Throwable()
-
-        if (!hasPermissions(this.appContext!!, REQUIRED_PERMISSIONS)) {
-            this.appActivity?.requestPermissions(REQUIRED_PERMISSIONS, REQUEST_CODE_REQUIRED_PERMISSIONS)
-        }
-
-        // Start Advertising first
-        this.nearbyManager.startAdvertising(deviceName).addOnSuccessListener {
-
-            // Start Discovery
-            this.nearbyManager.startDiscovery().addOnSuccessListener {
-                // lets assume that advertising did work
-                Log.i(LOG_TAG, "SEND CALLBACK")
-                callback(Result.success(Unit))
-            }.addOnFailureListener { e ->
-                success = false
-                if (e is ApiException) {
-                    if (e.statusCode == ConnectionsStatusCodes.STATUS_ALREADY_DISCOVERING) {
-                        callback(Result.failure(FlutterError(ErrorCode.OOB_ALREADY_DISCOVERING.raw.toString(), "Discovery already started.")))
-                    }
-                }
-                else {
-                    callback(Result.failure(FlutterError(ErrorCode.OOB_ERROR.raw.toString(), e.message)))
-                }
-            }
-        }.addOnFailureListener { e ->
-            success = false
-            if (e is ApiException) {
-                if (e.statusCode == ConnectionsStatusCodes.STATUS_ALREADY_ADVERTISING) {
-                    callback(Result.failure(FlutterError(ErrorCode.OOB_ALREADY_ADVERTISING.raw.toString(), "Advertising already started.")))
-                }
-            }
-            else {
-                callback(Result.failure(FlutterError(ErrorCode.OOB_ERROR.raw.toString(), e.message)))
-            }
-        }
+    override fun isUwbSupported(callback: (Result<Boolean>) -> Unit) {
+        callback(Result.success(value = this.uwbSupported()))
     }
 
     // Flutter API
-    override fun stopDiscovery(callback: (Result<Unit>) -> Unit) {
-        this.nearbyManager.stopDiscovery()
-        this.nearbyManager.stopAdvertising()
-        callback(Result.success(Unit))
-    }
-
-    // Flutter API
-    override fun handleConnectionRequest(device: UwbDevice, accept: Boolean, callback: (Result<Unit>) -> Unit) {
-        var task: Task<Void>? = null
-
-        if (accept) {
-            task = this.nearbyManager.acceptConnection(device.id)
-        } else {
-            task = this.nearbyManager.rejectConnection(device.id)
-        }
-
-        task.addOnSuccessListener {
-            callback(Result.success(Unit))
-        }.addOnFailureListener { e ->
-            if (e is ApiException) {
-                if (e.statusCode == ConnectionsStatusCodes.STATUS_OUT_OF_ORDER_API_CALL) {
-                    callback(Result.failure(FlutterError(ErrorCode.OOB_ERROR.raw.toString(), "There is no pending connection request.")))
-                }
-            }
-            else {
-                callback(Result.failure(FlutterError(ErrorCode.OOB_ERROR.raw.toString(), e.message)))
-            }
-        }
-    }
 
     private fun hasPermissions(context: Context, permissions: Array<String>): Boolean {
         for (permission in permissions) {
@@ -311,35 +150,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
         this.appActivity = binding.activity
     }
 
-    private fun createUwbDevice(endpoint: Endpoint): UwbDevice {
-        return UwbDevice(endpoint.id, endpoint.name, deviceType = DeviceType.SMARTPHONE, state = endpoint.state)
-    }
-
-    private val onEndpointConnectionInitiatedCallback: (Endpoint, Boolean) -> Unit = { endpoint, isIncomingConnection ->
-        Log.i(LOG_TAG, "onEndpointConnectionInitiatedCallback")
-
-        mainScope.launch  {
-            var job = coroutineScope.launch {
-                if (isIncomingConnection) {
-                    isController = false
-                    uwbConnectionManager.createControleeSession()
-                    Log.i(LOG_TAG, "createControleeSession")
-                } else {
-                    isController = true
-                    uwbConnectionManager.createControllerSession()
-                    Log.i(LOG_TAG, "createControllerSession")
-                }
-            }
-
-            job.join()
-            Log.i(LOG_TAG, "Create sessions done")
-            flutterApi.onHostDiscoveryConnectionRequestReceived(
-                createUwbDevice(endpoint),
-            ) { Result.success(it)}
-        }
-
-    }
-
     /**
      * As soon as the other endpoint is connected the devices shares their uwb parameters.
      */
@@ -347,8 +157,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
         Log.d(LOG_TAG , "(onEndpointConnectedCallback) Endpoint connected: $endpoint")
 
         flutterApi.onHostDiscoveryDeviceConnected(
-            createUwbDevice(endpoint)
-        ) { Result.success(it)}
 
         shareUwbParameters(endpoint)
     }
@@ -431,11 +239,6 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
             is RangingResult.RangingResultPeerDisconnected -> {
                 Log.e(LOG_TAG, "Ranging result peer disconnected: ${rangingResult.device.address}")
 
-                this.nearbyManager.disconnect(endpoint.id)
-
-                if (this.nearbyManager.isDiscovering()) {
-                    this.nearbyManager.restartDiscovery()
-                }
 
                 // reset flag so this device it could be a controlee
                 this.isController = false
@@ -467,37 +270,4 @@ class UwbPlugin : FlutterPlugin, UwbHostApi, ActivityAware {
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {}
 
     override fun onDetachedFromActivity() {}
-
-    private val onConnectionErrorCallback: (String, Status) -> Unit = { endpointId, status ->
-        Log.d(LOG_TAG , "(onConnectionErrorCallback) Connection Error: $endpointId, ${status.status}")
-        // TODO: Trigger Flutter API
-    }
-
-    private val onEndpointConnectionRejected: (Endpoint) -> Unit = { endpoint ->
-        Log.d(LOG_TAG, "Endpoint Rejected: $endpoint")
-        flutterApi.onHostDiscoveryDeviceRejected(
-            createUwbDevice(endpoint)
-        ) {Result.success(it)}
-    }
-
-    private val onEndpointConnectionDisconnectedCallback: (Endpoint) -> Unit = { endpoint ->
-        Log.d(LOG_TAG, "(onEndpointConnectionDisconnectedCallback) Connection Disconnected: $endpoint")
-        flutterApi.onHostDiscoveryDeviceDisconnected(
-            createUwbDevice(endpoint)
-        ) {Result.success(it)}
-    }
-
-    private val onEndpointFoundCallback: (Endpoint) -> Unit = { endpoint ->
-        Log.d(LOG_TAG, "(onEndpointFoundCallback) Found Endpoint: $endpoint")
-        flutterApi.onHostDiscoveryDeviceFound(
-            createUwbDevice(endpoint)
-        ) {Result.success(it)}
-    }
-
-    private val onEndpointLostCallback: (Endpoint) -> Unit = { endpoint ->
-        Log.d(LOG_TAG, "(onEndpointLostCallback) Lost Endpoint: $endpoint")
-        flutterApi.onHostDiscoveryDeviceLost(
-            createUwbDevice(endpoint)
-        ) {Result.success(it)}
-    }
 }

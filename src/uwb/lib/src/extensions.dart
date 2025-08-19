@@ -1,4 +1,4 @@
-import 'package:uwb/src/uwb.g.dart';
+import 'package:uwb/src/uwb_native_int.g.dart';
 
 extension Direction3DExt on Direction3D {
   String direction3DToString() {

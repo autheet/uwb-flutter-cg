@@ -4,11 +4,11 @@ import 'package:pigeon/pigeon.dart';
 
 // #docregion config
 @ConfigurePigeon(PigeonOptions(
-  dartOut: 'lib/src/uwb.g.dart',
+  dartOut: 'lib/src/uwb_native_int.g.dart',
   dartOptions: DartOptions(),
-  kotlinOut: 'android/src/main/kotlin/net/christiangreiner/uwb/Uwb.g.kt',
+  kotlinOut: 'android/src/main/kotlin/net/christiangreiner/uwb/UwbNativeInt.g.kt',
   kotlinOptions: KotlinOptions(),
-  swiftOut: 'ios/Classes/Uwb.g.swift',
+  swiftOut: 'ios/Classes/UwbNativeInt.g.swift',
   swiftOptions: SwiftOptions(),
   dartPackageName: 'uwb',
 ))
@@ -57,7 +57,35 @@ class UwbData {
   double? horizontalAngle;
 }
 
-enum DeviceType { smartphone, accessory }
+
+/// A data class to hold all necessary UWB configuration parameters for the
+/// FiRa accessory protocol. This ensures that both the controller and accessory
+/// are using the exact same settings for the ranging session.
+class UwbConfig {
+  /// Corresponds to RangingParameters.UwbConfigId (e.g., CONFIG_UNICAST_DS_TWR).
+  final int uwbConfigId;
+  /// The session ID for the ranging interaction.
+  final int sessionId;
+  /// The session key for securing the ranging data.
+  final Uint8List sessionKeyInfo;
+  /// The UWB channel to be used.
+  final int channel;
+  /// The preamble index for the UWB signal.
+  final int preambleIndex;
+  /// The UWB address of the peer device (the one not generating this config).
+  final Uint8List peerAddress;
+
+  UwbConfig({
+    required this.uwbConfigId,
+    required this.sessionId,
+    required this.sessionKeyInfo,
+    required this.channel,
+    required this.preambleIndex,
+    required this.peerAddress,
+  });
+}
+
+enum DeviceType { iosdevice, accessory, controller, controllee }
 
 /// Represents a UWB device for Android and iOS.
 class UwbDevice {
@@ -84,16 +112,13 @@ class UwbDevice {
 
   // The state of the device.
   DeviceState? state;
+
+  // The RSSI value of the device during discovery.
+  int? rssi;
 }
 
 enum ErrorCode {
-  OOB_ERROR,
-  OOB_DEVICE_ALREADY_CONNECTED,
-  OOB_CONNECTION_ERROR,
-  OOB_DEVICE_NOT_FOUND,
-  OOB_ALREADY_ADVERTISING,
-  OOB_ALREADY_DISCOVERING,
-  OOB_SENDING_DATA_FAILED,
+
   UWB_ERROR,
   UWB_TOO_MANY_SESSIONS,
 }
@@ -112,20 +137,20 @@ enum DeviceState {
 
 @HostApi()
 abstract class UwbHostApi {
-  @async
-  void discoverDevices(String deviceName);
 
-  @async
-  void stopDiscovery();
 
   @async
   void handleConnectionRequest(UwbDevice device, bool accept);
+  @async
 
   @async
   bool isUwbSupported();
 
   @async
   void startRanging(UwbDevice device);
+
+ @async
+  void discoverDevices(String deviceName, String auHourlyDigest);
 
   @async
   void stopRanging(UwbDevice device);
@@ -149,6 +174,9 @@ abstract class UwbFlutterApi {
 
   void onHostUwbSessionStarted(UwbDevice device);
   void onHostUwbSessionDisconnected(UwbDevice device);
+
+  void onUwbRangingResult(UwbData data);
+  void onUwbRangingError(String error);
 
   // This method is only for building enums in the generated file
   void _buildTrigger(ErrorCode code, DeviceState state);

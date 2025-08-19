@@ -1,4 +1,4 @@
-import 'package:uwb/src/uwb.g.dart';
+import 'package:uwb/src/uwb_native_int.g.dart';
 
 // System Callbacks
 typedef OnPermissionRequired = void Function(PermissionAction action);
