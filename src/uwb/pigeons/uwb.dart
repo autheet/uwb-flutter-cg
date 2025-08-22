@@ -151,6 +151,5 @@ abstract class UwbFlutterApi {
   void onHostUwbSessionDisconnected(UwbDevice device);
 
   // This method is only for building enums in the generated file
-  void _buildTrigger(ErrorCode code, DeviceState state);
 }
 // #enddocregion flutter-definitions

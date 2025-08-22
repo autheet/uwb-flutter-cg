@@ -20,7 +20,6 @@ class RangingPage extends StatefulWidget {
 }
 
 class _RangingPage extends State<RangingPage> {
-  bool _isUwbSupported = false;
 
   final BehaviorSubject<Iterable<UwbDevice>> _discoveredDevicesStream =
       BehaviorSubject<Iterable<UwbDevice>>();
@@ -45,9 +44,7 @@ class _RangingPage extends State<RangingPage> {
     if (!mounted) return;
 
     try {
-      _isUwbSupported = await widget.uwbPlugin.isUwbSupported();
     } on PlatformException {
-      _isUwbSupported = false;
     }
 
     widget.uwbPlugin.discoveryStateStream.listen((event) {
@@ -77,9 +74,7 @@ class _RangingPage extends State<RangingPage> {
               "[APP] Device disconnected: ${device.name} ${device.id} ${device.state}");
         case DeviceLostState(device: var device):
           print("[APP] Device Lost: ${device.id} ${device.state}");
-        case _:
-          print("[APP] Unknown state");
-      }
+        }
     });
 
     widget.uwbPlugin.uwbSessionStateStream.listen(
@@ -99,9 +94,7 @@ class _RangingPage extends State<RangingPage> {
             showErrorDialog("UWB Disconnected",
                 "UWB Session disconnected for ${device.name}");
             break;
-          case _:
-            print("[APP] Unknown state");
-        }
+          }
       },
     );
 
