@@ -1,4 +1,4 @@
-library flutter_uwb;
+library;
 
 export 'src/uwb_platform_interface.dart' hide UwbPlatform, UwbFlutterApiHandler;
 export 'src/states.dart';

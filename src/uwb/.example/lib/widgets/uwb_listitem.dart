@@ -9,10 +9,10 @@ class UwbListItem extends StatelessWidget {
   final Uwb uwbPlugin;
 
   const UwbListItem({
-    Key? key,
+    super.key,
     required this.device,
     required this.uwbPlugin,
-  }) : super(key: key);
+  });
 
   String getDirection(UwbDevice device) {
     if (device.uwbData == null) {
@@ -103,7 +103,7 @@ class UwbListItem extends StatelessWidget {
               ],
             ),
             title: Text(
-              "${device.name}",
+              device.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
