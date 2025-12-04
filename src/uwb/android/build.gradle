@@ -29,8 +29,8 @@ android {
         namespace 'net.christiangreiner.uwb'
     }
 
-    ndkVersion = flutter.ndkVersion
-    compileSdk = flutter.compileSdkVersion
+    ndkVersion = rootProject.ext.ndkVersion  ?: "26.1.10909125"
+    compileSdk = rootProject.ext.compileSdkVersion  ?: 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21
@@ -47,7 +47,8 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion = flutter.minSdkVersion
+        minSdkVersion = rootProject.ext.minSdkVersion  ?: 31
+        targetSdkVersion = rootProject.ext.targetSdkVersion  ?: 36
     }
 
     dependencies {
