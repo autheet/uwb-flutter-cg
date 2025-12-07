@@ -9,7 +9,7 @@ buildscript {
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.3.0'
+        classpath 'com.android.tools.build:gradle:8.3.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -29,7 +29,7 @@ android {
         namespace 'net.christiangreiner.uwb'
     }
 
-    ndkVersion = rootProject.ext.ndkVersion  ?: "26.1.10909125"
+    ndkVersion = rootProject.ext.ndkVersion  ?: "29.0.14206865"
     compileSdk = rootProject.ext.compileSdkVersion  ?: 36
 
     compileOptions {
